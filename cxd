@@ -1,7 +1,7 @@
 -- =====================================================================
 --  ★ Sigma Hub ★
---  功能：加载屏 / 自动技能 / 鱼条锁定 / 自动卖鱼 / ESP / 传送 / 主题 / 消遣 / 设置
---  NPC 过滤：只显示任务/刷新 NPC，同名/相似名只保留最近一个
+--  功能：加载屏 / 技能 / 钓鱼 / ESP / 传送 / 主题 / 消遣 / 设置 / AI 助手
+--  AI 助手支持真实 API 接入（Groq / DeepSeek / OpenAI 等）
 -- =====================================================================
 
 local Players             = game:GetService("Players")
@@ -13,11 +13,46 @@ local VirtualInputManager = game:GetService("VirtualInputManager")
 local StarterGui          = game:GetService("StarterGui")
 local CoreGui             = game:GetService("CoreGui")
 local CollectionService   = game:GetService("CollectionService")
+local HttpService         = game:GetService("HttpService")
 
 local LP     = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
 
--- ⚙️ 配置
+-- =====================================================================
+--  🔑  AI 助手 API 配置（想用真实 AI 请改这三行）
+-- =====================================================================
+local AI_CONFIG = {
+    -- ① 【必填】API Key
+    --    Groq:      gsk_xxxxxxxxxxxxxxxx
+    --    DeepSeek:  sk-xxxxxxxxxxxxxxxx
+    --    OpenAI:    sk-proj-xxxxxxxxxxxxxxxx
+    API_KEY = "sk-f8eba1cf8940494eb170ff3fe274a86c",
+
+    -- ② 【必填】API 接口地址
+    --    Groq:      https://api.groq.com/openai/v1/chat/completions
+    --    DeepSeek:  https://api.deepseek.com/v1/chat/completions
+    --    OpenAI:    https://api.openai.com/v1/chat/completions
+    API_URL = "https://api.deepseek.com/v1/chat/completions",
+
+    -- ③ 【必填】模型名
+    --    Groq:      llama-3.3-70b-versatile
+    --    DeepSeek:  deepseek-chat
+    --    OpenAI:    gpt-4o-mini
+    MODEL = "deepseek-chat",
+
+    -- ④ 【可选】系统提示词（定义 AI 角色）
+    SYSTEM_PROMPT = "你是 Sigma Hub 的内置 AI 助手，名字叫 Sigma。用简洁的中文回答，友好但不过于热情。",
+
+    -- ⑤ 【可选】API 失败时是否回退到本地规则引擎
+    FALLBACK_TO_LOCAL = true,
+
+    -- ⑥ 【可选】保留多少轮对话历史（多轮对话上下文）
+    MAX_HISTORY = 12,
+}
+
+-- =====================================================================
+--  ⚙️  脚本基础配置
+-- =====================================================================
 local CFG = {
     LOAD_TIME  = 3.2,
     STAR_COUNT = 55,
@@ -29,7 +64,6 @@ local CFG = {
     TP_OFFSET     = 3,
     TP_REFRESH    = 3,
 
-    -- 🖥️ UI 缩放
     UI_SCALE      = 1.0,
     UI_SCALE_MIN  = 0.5,
     UI_SCALE_MAX  = 1.8,
@@ -66,7 +100,6 @@ local CFG = {
     },
 }
 
--- 🎨 主题预设
 local THEMES = {
     { name = "深海蓝", bg = Color3.fromRGB(14, 18, 28), accent = Color3.fromRGB(0, 220, 255) },
     { name = "暗夜紫", bg = Color3.fromRGB(20, 14, 30), accent = Color3.fromRGB(170, 130, 255) },
@@ -81,7 +114,6 @@ local CurrentTheme = {
     accent = THEMES[1].accent,
 }
 
--- 🧹 清理旧界面
 local function destroyOld()
     local parents = { CoreGui }
     local pg = LP:FindFirstChildOfClass("PlayerGui")
@@ -99,7 +131,7 @@ end
 destroyOld()
 
 -- =====================================================================
---  ██  PART 1 — 加载屏
+--  PART 1 — 加载屏
 -- =====================================================================
 local loadGui = Instance.new("ScreenGui")
 loadGui.Name           = "SigmaHub_Loader"
@@ -114,7 +146,6 @@ loadRoot.Size                   = UDim2.new(1, 0, 1, 0)
 loadRoot.Position               = UDim2.new(0, 0, -1, 0)
 loadRoot.BackgroundTransparency = 1
 loadRoot.BorderSizePixel        = 0
-loadRoot.ClipsDescendants       = false
 loadRoot.ZIndex                 = 5
 loadRoot.Parent                 = loadGui
 
@@ -232,8 +263,6 @@ loadMainTitle.TextSize               = 50
 loadMainTitle.TextTransparency       = 1
 loadMainTitle.ZIndex                 = 17
 loadMainTitle.Parent                 = loadTitleArea
-local lmtSize = Instance.new("UITextSizeConstraint", loadMainTitle)
-lmtSize.MinTextSize, lmtSize.MaxTextSize = 22, 50
 
 local loadTitleGlow = Instance.new("TextLabel")
 loadTitleGlow.Size                   = loadMainTitle.Size
@@ -246,8 +275,6 @@ loadTitleGlow.TextSize               = 50
 loadTitleGlow.TextTransparency       = 1
 loadTitleGlow.ZIndex                 = 16
 loadTitleGlow.Parent                 = loadTitleArea
-local ltgSize = Instance.new("UITextSizeConstraint", loadTitleGlow)
-ltgSize.MinTextSize, ltgSize.MaxTextSize = 22, 50
 
 local loadSubtitle = Instance.new("TextLabel")
 loadSubtitle.Size                   = UDim2.new(0.8, 0, 0, 36)
@@ -260,8 +287,6 @@ loadSubtitle.TextSize               = 17
 loadSubtitle.TextTransparency       = 1
 loadSubtitle.ZIndex                 = 17
 loadSubtitle.Parent                 = loadTitleArea
-local lsubSize = Instance.new("UITextSizeConstraint", loadSubtitle)
-lsubSize.MinTextSize, lsubSize.MaxTextSize = 11, 17
 
 local loadProgressArea = Instance.new("Frame")
 loadProgressArea.Size                   = UDim2.new(1, 0, 0, 120)
@@ -289,18 +314,8 @@ loadBarFill.ZIndex           = 17
 loadBarFill.Parent           = loadBarTrack
 Instance.new("UICorner", loadBarFill).CornerRadius = UDim.new(1, 0)
 
-local loadFillGrad = Instance.new("UIGradient")
-loadFillGrad.Rotation = 90
-loadFillGrad.Color = ColorSequence.new({
-    ColorSequenceKeypoint.new(0,   CurrentTheme.accent),
-    ColorSequenceKeypoint.new(0.5, Color3.fromRGB(150, 240, 255)),
-    ColorSequenceKeypoint.new(1,   CurrentTheme.accent),
-})
-loadFillGrad.Parent = loadBarFill
-
 local loadBarShine = Instance.new("Frame")
 loadBarShine.Size                   = UDim2.new(0, 32, 1, 0)
-loadBarShine.Position               = UDim2.new(0, 0, 0, 0)
 loadBarShine.BackgroundColor3       = Color3.new(1, 1, 1)
 loadBarShine.BackgroundTransparency = 0.65
 loadBarShine.BorderSizePixel        = 0
@@ -331,11 +346,6 @@ loadStatusPill.ZIndex                 = 16
 loadStatusPill.Visible                = false
 loadStatusPill.Parent                 = loadProgressArea
 Instance.new("UICorner", loadStatusPill).CornerRadius = UDim.new(1, 0)
-
-local loadPillStroke = Instance.new("UIStroke", loadStatusPill)
-loadPillStroke.Color        = CurrentTheme.accent
-loadPillStroke.Transparency = 0.55
-loadPillStroke.Thickness    = 1
 
 local loadStatusDot = Instance.new("Frame")
 loadStatusDot.Size             = UDim2.new(0, 9, 0, 9)
@@ -372,8 +382,6 @@ loadWelcomeText.TextWrapped            = true
 loadWelcomeText.TextTransparency       = 1
 loadWelcomeText.ZIndex                 = 17
 loadWelcomeText.Parent                 = loadRoot
-local lwcSize = Instance.new("UITextSizeConstraint", loadWelcomeText)
-lwcSize.MinTextSize, lwcSize.MaxTextSize = 18, 34
 
 TweenService:Create(loadRoot, TweenInfo.new(1.3, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
     Position = UDim2.new(0, 0, 0, 0)
@@ -392,7 +400,6 @@ task.delay(0.55, function()
     TweenService:Create(loadTitleGlow, TweenInfo.new(1.1), {TextTransparency = 0.55}):Play()
     TweenService:Create(loadSubtitle,  TweenInfo.new(1.4), {TextTransparency = 0}):Play()
     TweenService:Create(loadPctText,   TweenInfo.new(1.1), {TextTransparency = 0}):Play()
-
     loadStatusPill.Visible = true
     loadStatusPill.BackgroundTransparency = 1
     TweenService:Create(loadStatusPill, TweenInfo.new(1.1), {BackgroundTransparency = 0.3}):Play()
@@ -474,7 +481,6 @@ local function loadDropAway(obj, delay, spin)
         )
         local info = TweenInfo.new(0.9, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
         local props = { Position = goal, Rotation = (obj.Rotation or 0) + spin }
-
         if obj:IsA("TextLabel") or obj:IsA("TextButton") then
             props.TextTransparency = 1
         elseif obj:IsA("Frame") or obj:IsA("ImageLabel") then
@@ -519,7 +525,7 @@ task.wait(1.35)
 loadGui:Destroy()
 
 -- =====================================================================
---  ██  PART 2 — 主面板
+--  PART 2 — 主面板
 -- =====================================================================
 
 local State = {
@@ -534,7 +540,6 @@ local State = {
     NpcESP     = false,
 }
 
--- 🎯 NPC 过滤 + 归一化去重
 local function lowerText(s)
     if type(s) ~= "string" then return "" end
     return string.lower(s)
@@ -544,9 +549,7 @@ local function containsKeyword(text, keywords)
     local t = lowerText(text)
     if t == "" then return false end
     for _, kw in ipairs(keywords) do
-        if string.find(t, lowerText(kw), 1, true) then
-            return true
-        end
+        if string.find(t, lowerText(kw), 1, true) then return true end
     end
     return false
 end
@@ -571,7 +574,6 @@ end
 
 local function isQuestOrSpawnNpc(model)
     if not model or not model.Parent then return false end
-
     local ok, tags = pcall(function() return CollectionService:GetTags(model) end)
     if ok and tags then
         for _, tag in ipairs(tags) do
@@ -583,23 +585,17 @@ local function isQuestOrSpawnNpc(model)
             end
         end
     end
-
     if containsKeyword(model.Name, CFG.NPC_KEYWORDS) then return true end
-
     for _, attr in ipairs(CFG.NPC_ATTRS) do
         local ok2, val = pcall(function() return model:GetAttribute(attr) end)
         if ok2 and val ~= nil then return true end
     end
-
     for _, child in ipairs(model:GetDescendants()) do
-        if child:IsA("ProximityPrompt")
-        or child:IsA("ClickDetector")
-        or child:IsA("Dialog")
-        or child:IsA("DialogChoice") then
+        if child:IsA("ProximityPrompt") or child:IsA("ClickDetector")
+        or child:IsA("Dialog") or child:IsA("DialogChoice") then
             return true
         end
         if containsKeyword(child.Name, CFG.NPC_KEYWORDS) then return true end
-
         local ok3, tags2 = pcall(function() return CollectionService:GetTags(child) end)
         if ok3 and tags2 then
             for _, tag in ipairs(tags2) do
@@ -611,41 +607,33 @@ local function isQuestOrSpawnNpc(model)
                 end
             end
         end
-
         for _, attr in ipairs(CFG.NPC_ATTRS) do
             local ok4, val = pcall(function() return child:GetAttribute(attr) end)
             if ok4 and val ~= nil then return true end
         end
     end
-
     return false
 end
 
 local function isEligibleNpc(model)
     if not model or not model.Parent then return false end
     if Players:GetPlayerFromCharacter(model) then return false end
-
     local hum = model:FindFirstChildOfClass("Humanoid")
     local hrp = model:FindFirstChild("HumanoidRootPart")
     if not hum or not hrp then return false end
     if hum.Health <= 0 then return false end
-
-    if CFG.FilterQuestNpcs then
-        return isQuestOrSpawnNpc(model)
-    end
+    if CFG.FilterQuestNpcs then return isQuestOrSpawnNpc(model) end
     return true
 end
 
 local function dedupeNpcsByName(npcList)
     if not CFG.DedupeNpcs then return npcList end
-
     local myPos = Vector3.new(0, 0, 0)
     local char = LP.Character
     if char then
         local hrp = char:FindFirstChild("HumanoidRootPart")
         if hrp then myPos = hrp.Position end
     end
-
     local byKey = {}
     for _, npc in ipairs(npcList) do
         local hrp = npc:FindFirstChild("HumanoidRootPart")
@@ -658,7 +646,6 @@ local function dedupeNpcsByName(npcList)
             end
         end
     end
-
     local result = {}
     for _, entry in pairs(byKey) do
         table.insert(result, entry.npc)
@@ -666,7 +653,6 @@ local function dedupeNpcsByName(npcList)
     return result
 end
 
--- 🪟 GUI
 local hubGui = Instance.new("ScreenGui")
 hubGui.Name         = "SigmaHub"
 hubGui.ResetOnSpawn = false
@@ -693,8 +679,7 @@ local sDelete = newSound("154157386",       0.9)
 local sWin    = newSound("9125402735",      0.7)
 local sLose   = newSound("9125403864",      0.7)
 
-local PANEL_W, PANEL_H = 420, 310
--- 使用 AnchorPoint(0.5, 0.5) + 位置(0.5, 0.5) 让面板无论缩放如何都保持居中
+local PANEL_W, PANEL_H = 420, 320
 local PANEL_POS  = UDim2.new(0.5, 0, 0.5, 0)
 local MIN_SIZE   = UDim2.new(0, PANEL_W, 0, 42)
 local FULL_SIZE  = UDim2.new(0, PANEL_W, 0, PANEL_H)
@@ -713,7 +698,6 @@ panelStroke.Color        = CurrentTheme.accent
 panelStroke.Thickness    = 1.5
 panelStroke.Transparency = 0.25
 
--- 🖥️ UI 缩放
 local panelScale = Instance.new("UIScale")
 panelScale.Scale  = CFG.UI_SCALE
 panelScale.Parent = panel
@@ -805,8 +789,8 @@ pageHost.Parent                 = panel
 local tabButtons = {}
 local function newTab(text, index)
     local btn = Instance.new("TextButton")
-    btn.Size             = UDim2.new(0.86, 0, 0, 30)
-    btn.Position         = UDim2.new(0.07, 0, 0, 4 + index * 34)
+    btn.Size             = UDim2.new(0.86, 0, 0, 26)
+    btn.Position         = UDim2.new(0.07, 0, 0, 4 + index * 29)
     btn.Text             = text
     btn.TextColor3       = Color3.fromRGB(150, 160, 180)
     btn.BackgroundColor3 = Color3.fromRGB(22, 26, 38)
@@ -826,6 +810,7 @@ local tabTp       = newTab("🌀  传送", 3)
 local tabTheme    = newTab("🎨  主题", 4)
 local tabFun      = newTab("🎮  消遣", 5)
 local tabSettings = newTab("⚙️  设置", 6)
+local tabAI       = newTab("🤖  AI 助手", 7)
 
 local function newPage()
     local page = Instance.new("ScrollingFrame")
@@ -848,6 +833,7 @@ local pageTp       = newPage()
 local pageTheme    = newPage()
 local pageFun      = newPage()
 local pageSettings = newPage()
+local pageAI       = newPage()
 
 local activePage   = nil
 local activeTabBtn = nil
@@ -861,13 +847,13 @@ local function selectTab(btn, page)
             TweenService:Create(b, tabTween, {
                 BackgroundColor3 = CurrentTheme.accent,
                 TextColor3       = Color3.new(1, 1, 1),
-                Size             = UDim2.new(0.92, 0, 0, 30),
+                Size             = UDim2.new(0.92, 0, 0, 26),
             }):Play()
         else
             TweenService:Create(b, tabTween, {
                 BackgroundColor3 = Color3.fromRGB(22, 26, 38),
                 TextColor3       = Color3.fromRGB(150, 160, 180),
-                Size             = UDim2.new(0.86, 0, 0, 30),
+                Size             = UDim2.new(0.86, 0, 0, 26),
             }):Play()
         end
     end
@@ -898,13 +884,23 @@ local function newToggle(parent, y, label, key, sfx)
         if sfx then pcall(function() sfx:Play() end) end
         State[key] = not State[key]
         btn.Text = label .. "：" .. (State[key] and "开启" or "关闭")
-        btn.BackgroundColor3 = State[key] and CurrentTheme.accent
-                                          or Color3.fromRGB(26, 32, 46)
-        btn.TextColor3       = State[key] and Color3.fromRGB(230, 255, 255)
-                                          or Color3.fromRGB(200, 210, 230)
+        btn.BackgroundColor3 = State[key] and CurrentTheme.accent or Color3.fromRGB(26, 32, 46)
+        btn.TextColor3       = State[key] and Color3.fromRGB(230, 255, 255) or Color3.fromRGB(200, 210, 230)
     end)
-    table.insert(themedToggles, { btn = btn, key = key })
+    table.insert(themedToggles, { btn = btn, key = key, label = label })
     return btn
+end
+
+local function setToggleState(key, value)
+    State[key] = value
+    for _, item in ipairs(themedToggles) do
+        if item.key == key then
+            item.btn.Text = item.label .. "：" .. (value and "开启" or "关闭")
+            item.btn.BackgroundColor3 = value and CurrentTheme.accent or Color3.fromRGB(26, 32, 46)
+            item.btn.TextColor3 = value and Color3.fromRGB(230, 255, 255) or Color3.fromRGB(200, 210, 230)
+            break
+        end
+    end
 end
 
 local function newAction(parent, y, label, color, onClick)
@@ -925,18 +921,14 @@ local function newAction(parent, y, label, color, onClick)
     return btn
 end
 
--- ─────────────────────────────────────────────────────────────────────
---  技能页
--- ─────────────────────────────────────────────────────────────────────
+-- 技能页
 newToggle(pageSkill, 5,   "自动全技能（Z X C V）", "AutoSkill", sSkill)
 newToggle(pageSkill, 45,  "自动技能 [Z]",           "SkillZ",    sSkill)
 newToggle(pageSkill, 82,  "自动技能 [X]",           "SkillX",    sSkill)
 newToggle(pageSkill, 119, "自动技能 [C]",           "SkillC",    sSkill)
 newToggle(pageSkill, 156, "自动技能 [V]",           "SkillV",    sSkill)
 
--- ─────────────────────────────────────────────────────────────────────
---  钓鱼页
--- ─────────────────────────────────────────────────────────────────────
+-- 钓鱼页
 newToggle(pageFish, 5,  "锁定鱼条（居中）", "BarLock",  sLock)
 newToggle(pageFish, 42, "自动卖鱼",         "AutoSell", sSell)
 
@@ -1023,14 +1015,9 @@ applyBtn.MouseButton1Click:Connect(function()
     pcall(function() sClick:Play() end)
     applyInterval()
 end)
+intervalBox.FocusLost:Connect(function() applyInterval() end)
 
-intervalBox.FocusLost:Connect(function()
-    applyInterval()
-end)
-
--- ─────────────────────────────────────────────────────────────────────
---  ESP 页
--- ─────────────────────────────────────────────────────────────────────
+-- ESP 页
 newToggle(pageEsp, 5,  "显示玩家位置（Player ESP）", "PlayerESP", sClick)
 newToggle(pageEsp, 42, "显示 NPC 位置（NPC ESP）",   "NpcESP",    sClick)
 
@@ -1048,9 +1035,7 @@ espInfo.Text = "  玩家 ESP：绿色标签\n  NPC ESP：红色标签\n  仅任�
 espInfo.Parent                 = pageEsp
 Instance.new("UICorner", espInfo).CornerRadius = UDim.new(0, 6)
 
--- ─────────────────────────────────────────────────────────────────────
---  主题页
--- ─────────────────────────────────────────────────────────────────────
+-- 主题页
 local themeBtns = {}
 for i, th in ipairs(THEMES) do
     local btn = Instance.new("TextButton")
@@ -1065,9 +1050,7 @@ for i, th in ipairs(THEMES) do
     btn.Parent           = pageTheme
     Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
     local st = Instance.new("UIStroke", btn)
-    st.Color        = th.accent
-    st.Thickness    = 1.2
-    st.Transparency = 0.35
+    st.Color, st.Thickness, st.Transparency = th.accent, 1.2, 0.35
     table.insert(themeBtns, btn)
 end
 
@@ -1084,24 +1067,20 @@ local function applyTheme(theme)
             TweenService:Create(b, TweenInfo.new(0.25), { BackgroundColor3 = theme.accent }):Play()
         end
     end
-
     for _, item in ipairs(themedToggles) do
         if State[item.key] then
             TweenService:Create(item.btn, TweenInfo.new(0.25), { BackgroundColor3 = theme.accent }):Play()
         end
     end
-
     for _, obj in ipairs(themedAccentTexts) do
         if obj and obj.Parent then
             TweenService:Create(obj, TweenInfo.new(0.25), { TextColor3 = theme.accent }):Play()
         end
     end
-
     if intervalStroke then
         TweenService:Create(intervalStroke, TweenInfo.new(0.25), { Color = theme.accent }):Play()
     end
-
-    for _, page in ipairs({pageSkill, pageFish, pageEsp, pageTp, pageTheme, pageFun, pageSettings}) do
+    for _, page in ipairs({pageSkill, pageFish, pageEsp, pageTp, pageTheme, pageFun, pageSettings, pageAI}) do
         page.ScrollBarImageColor3 = theme.accent
     end
 end
@@ -1113,9 +1092,7 @@ for i, btn in ipairs(themeBtns) do
     end)
 end
 
--- ─────────────────────────────────────────────────────────────────────
---  🎮 消遣页（小游戏）
--- ─────────────────────────────────────────────────────────────────────
+-- 消遣页
 local FunState = {
     Guess = { target = math.random(1, 100), tries = 0, done = false },
     RPS   = { playerScore = 0, cpuScore = 0 },
@@ -1148,11 +1125,9 @@ local function makeFunCard(y, height)
     return card
 end
 
--- ══════════ 猜数字 ══════════
 do
     local card = makeFunCard(5, 112)
     makeFunTitle(card, 4, "🎲  猜数字（1 - 100）")
-
     local box = Instance.new("TextBox")
     box.Size             = UDim2.new(0.5, 0, 0, 28)
     box.Position         = UDim2.new(0, 8, 0, 30)
@@ -1161,7 +1136,6 @@ do
     box.PlaceholderColor3 = Color3.fromRGB(120, 140, 160)
     box.Font             = Enum.Font.GothamBold
     box.TextSize         = 12
-    box.Text             = ""
     box.PlaceholderText  = "输入数字"
     box.ClearTextOnFocus = false
     box.Parent           = card
@@ -1206,9 +1180,9 @@ do
         FunState.Guess.target = math.random(1, 100)
         FunState.Guess.tries  = 0
         FunState.Guess.done   = false
-        result.Text           = "尝试次数：0"
-        result.TextColor3     = Color3.fromRGB(180, 200, 220)
-        box.Text              = ""
+        result.Text = "尝试次数：0"
+        result.TextColor3 = Color3.fromRGB(180, 200, 220)
+        box.Text = ""
     end
 
     local function submit()
@@ -1238,24 +1212,14 @@ do
         box.Text = ""
     end
 
-    goBtn.MouseButton1Click:Connect(function()
-        pcall(function() sClick:Play() end)
-        submit()
-    end)
-    box.FocusLost:Connect(function(enter)
-        if enter then submit() end
-    end)
-    restart.MouseButton1Click:Connect(function()
-        pcall(function() sClick:Play() end)
-        reset()
-    end)
+    goBtn.MouseButton1Click:Connect(function() pcall(function() sClick:Play() end); submit() end)
+    box.FocusLost:Connect(function(enter) if enter then submit() end end)
+    restart.MouseButton1Click:Connect(function() pcall(function() sClick:Play() end); reset() end)
 end
 
--- ══════════ 石头剪刀布 ══════════
 do
     local card = makeFunCard(122, 112)
     makeFunTitle(card, 4, "✂️  石头剪刀布")
-
     local choices = {
         { label = "石头", emoji = "✊" },
         { label = "剪刀", emoji = "✌️" },
@@ -1308,10 +1272,9 @@ do
             result.Text = "平局！双方都出 " .. pName
             result.TextColor3 = Color3.fromRGB(200, 200, 200)
         else
-            local win =
-                (playerIdx == 1 and cpuIdx == 2) or
-                (playerIdx == 2 and cpuIdx == 3) or
-                (playerIdx == 3 and cpuIdx == 1)
+            local win = (playerIdx == 1 and cpuIdx == 2)
+                     or (playerIdx == 2 and cpuIdx == 3)
+                     or (playerIdx == 3 and cpuIdx == 1)
             if win then
                 FunState.RPS.playerScore = FunState.RPS.playerScore + 1
                 result.Text = "🎉 你赢了！" .. pName .. " 击败 " .. cName
@@ -1335,11 +1298,9 @@ do
     end
 end
 
--- ══════════ 反应测试 ══════════
 do
     local card = makeFunCard(239, 112)
     makeFunTitle(card, 4, "⚡  反应测试")
-
     local area = Instance.new("TextButton")
     area.Size             = UDim2.new(0.95, 0, 0, 68)
     area.Position         = UDim2.new(0.025, 0, 0, 30)
@@ -1399,7 +1360,7 @@ do
             elseif ms < 380 then grade = "👍 还不错"
             else grade = "😅 再接再厉" end
             area.BackgroundColor3 = Color3.fromRGB(30, 80, 160)
-            area.Text             = string.format("%.0f ms  %s", ms, grade)
+            area.Text = string.format("%.0f ms  %s", ms, grade)
             pcall(function() sWin:Play() end)
             task.delay(1.6, function()
                 if FunState.React.mode == "done" then setIdle() end
@@ -1408,14 +1369,8 @@ do
     end)
 end
 
--- ─────────────────────────────────────────────────────────────────────
---  ⚙️ 设置页
--- ─────────────────────────────────────────────────────────────────────
-
--- UI 缩放应用函数
-local scaleLabel  -- 前向声明，供 applyUiScale 引用
-local scaleBox
-local scaleApplyBtn
+-- 设置页
+local scaleLabel, scaleBox, scaleApplyBtn
 
 local function applyUiScale(scale, silent)
     scale = math.clamp(scale, CFG.UI_SCALE_MIN, CFG.UI_SCALE_MAX)
@@ -1437,7 +1392,6 @@ local function applyUiScale(scale, silent)
     end
 end
 
--- 页标题
 local settingsTitle1 = Instance.new("TextLabel")
 settingsTitle1.Size                   = UDim2.new(0.95, 0, 0, 22)
 settingsTitle1.Position               = UDim2.new(0.025, 0, 0, 5)
@@ -1451,7 +1405,6 @@ settingsTitle1.Parent                 = pageSettings
 Instance.new("UICorner", settingsTitle1).CornerRadius = UDim.new(0, 6)
 table.insert(themedAccentTexts, settingsTitle1)
 
--- 当前值
 scaleLabel = Instance.new("TextLabel")
 scaleLabel.Size                   = UDim2.new(0.95, 0, 0, 26)
 scaleLabel.Position               = UDim2.new(0.025, 0, 0, 33)
@@ -1463,7 +1416,6 @@ scaleLabel.TextSize               = 12
 scaleLabel.TextXAlignment         = Enum.TextXAlignment.Left
 scaleLabel.Parent                 = pageSettings
 
--- 预设按钮行
 local presets = {
     { name = "小 75%",  value = 0.75 },
     { name = "中 100%", value = 1.00 },
@@ -1482,18 +1434,12 @@ for i, p in ipairs(presets) do
     btn.AutoButtonColor  = false
     btn.Parent           = pageSettings
     Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
-    local st = Instance.new("UIStroke", btn)
-    st.Color        = Color3.fromRGB(60, 70, 90)
-    st.Thickness    = 1
-    st.Transparency = 0.5
-
     btn.MouseButton1Click:Connect(function()
         pcall(function() sClick:Play() end)
         applyUiScale(p.value)
     end)
 end
 
--- 微调按钮行
 local minusBtn = Instance.new("TextButton")
 minusBtn.Size             = UDim2.new(0.46, 0, 0, 30)
 minusBtn.Position         = UDim2.new(0.025, 0, 0, 102)
@@ -1522,27 +1468,14 @@ minusBtn.MouseButton1Click:Connect(function()
     pcall(function() sClick:Play() end)
     applyUiScale(CFG.UI_SCALE - 0.10)
 end)
-
 plusBtn.MouseButton1Click:Connect(function()
     pcall(function() sClick:Play() end)
     applyUiScale(CFG.UI_SCALE + 0.10)
 end)
 
--- 自定义输入框 + 应用
-local customLabel = Instance.new("TextLabel")
-customLabel.Size                   = UDim2.new(0.95, 0, 0, 18)
-customLabel.Position               = UDim2.new(0.025, 0, 0, 138)
-customLabel.BackgroundTransparency = 1
-customLabel.Text                   = "自定义缩放（" .. CFG.UI_SCALE_MIN .. " - " .. CFG.UI_SCALE_MAX .. "）"
-customLabel.TextColor3             = Color3.fromRGB(180, 200, 220)
-customLabel.Font                   = Enum.Font.Gotham
-customLabel.TextSize               = 10
-customLabel.TextXAlignment         = Enum.TextXAlignment.Left
-customLabel.Parent                 = pageSettings
-
 scaleBox = Instance.new("TextBox")
 scaleBox.Size             = UDim2.new(0.5, 0, 0, 30)
-scaleBox.Position         = UDim2.new(0.025, 0, 0, 158)
+scaleBox.Position         = UDim2.new(0.025, 0, 0, 142)
 scaleBox.BackgroundColor3 = Color3.fromRGB(26, 32, 46)
 scaleBox.TextColor3       = Color3.fromRGB(230, 255, 255)
 scaleBox.Font             = Enum.Font.GothamBold
@@ -1559,7 +1492,7 @@ scaleBoxStroke.Transparency = 0.5
 
 scaleApplyBtn = Instance.new("TextButton")
 scaleApplyBtn.Size             = UDim2.new(0.42, 0, 0, 30)
-scaleApplyBtn.Position         = UDim2.new(0.545, 0, 0, 158)
+scaleApplyBtn.Position         = UDim2.new(0.545, 0, 0, 142)
 scaleApplyBtn.BackgroundColor3 = Color3.fromRGB(0, 150, 100)
 scaleApplyBtn.TextColor3       = Color3.new(1, 1, 1)
 scaleApplyBtn.Font             = Enum.Font.GothamBold
@@ -1588,15 +1521,11 @@ scaleApplyBtn.MouseButton1Click:Connect(function()
     pcall(function() sClick:Play() end)
     applyCustomScale()
 end)
+scaleBox.FocusLost:Connect(function() applyCustomScale() end)
 
-scaleBox.FocusLost:Connect(function()
-    applyCustomScale()
-end)
-
--- 重置按钮
 local resetBtn = Instance.new("TextButton")
 resetBtn.Size             = UDim2.new(0.95, 0, 0, 28)
-resetBtn.Position         = UDim2.new(0.025, 0, 0, 194)
+resetBtn.Position         = UDim2.new(0.025, 0, 0, 178)
 resetBtn.BackgroundColor3 = Color3.fromRGB(80, 40, 40)
 resetBtn.TextColor3       = Color3.fromRGB(255, 220, 220)
 resetBtn.Font             = Enum.Font.GothamBold
@@ -1605,30 +1534,464 @@ resetBtn.Text             = "🔄  恢复默认缩放（100%）"
 resetBtn.AutoButtonColor  = false
 resetBtn.Parent           = pageSettings
 Instance.new("UICorner", resetBtn).CornerRadius = UDim.new(0, 6)
-
 resetBtn.MouseButton1Click:Connect(function()
     pcall(function() sClick:Play() end)
     applyUiScale(1.0)
 end)
 
--- 额外小提示
-local tipLabel = Instance.new("TextLabel")
-tipLabel.Size                   = UDim2.new(0.95, 0, 0, 50)
-tipLabel.Position               = UDim2.new(0.025, 0, 0, 228)
-tipLabel.BackgroundColor3       = Color3.fromRGB(20, 26, 38)
-tipLabel.TextColor3             = Color3.fromRGB(160, 180, 200)
-tipLabel.Font                   = Enum.Font.Gotham
-tipLabel.TextSize               = 10
-tipLabel.TextWrapped            = true
-tipLabel.TextXAlignment         = Enum.TextXAlignment.Left
-tipLabel.TextYAlignment         = Enum.TextYAlignment.Top
-tipLabel.Text                   = "  提示：调整缩放后，面板会保持居中。\n  拖动标题栏可以重新定位面板。"
-tipLabel.Parent                 = pageSettings
-Instance.new("UICorner", tipLabel).CornerRadius = UDim.new(0, 6)
+-- =====================================================================
+--  🤖 AI 助手页（含 API 接入）
+-- =====================================================================
+local chatScroll = Instance.new("ScrollingFrame")
+chatScroll.Size                   = UDim2.new(0.95, 0, 1, -72)
+chatScroll.Position               = UDim2.new(0.025, 0, 0, 4)
+chatScroll.BackgroundColor3       = Color3.fromRGB(20, 26, 38)
+chatScroll.BorderSizePixel        = 0
+chatScroll.ScrollBarThickness     = 2
+chatScroll.ScrollBarImageColor3   = CurrentTheme.accent
+chatScroll.CanvasSize             = UDim2.new(0, 0, 0, 0)
+chatScroll.AutomaticCanvasSize    = Enum.AutomaticSize.Y
+chatScroll.ScrollingDirection     = Enum.ScrollingDirection.Y
+chatScroll.Parent                 = pageAI
+Instance.new("UICorner", chatScroll).CornerRadius = UDim.new(0, 6)
 
--- ─────────────────────────────────────────────────────────────────────
+local chatLayout = Instance.new("UIListLayout", chatScroll)
+chatLayout.Padding = UDim.new(0, 6)
+chatLayout.SortOrder = Enum.SortOrder.LayoutOrder
+
+local chatPadding = Instance.new("UIPadding", chatScroll)
+chatPadding.PaddingTop    = UDim.new(0, 6)
+chatPadding.PaddingBottom = UDim.new(0, 6)
+chatPadding.PaddingLeft   = UDim.new(0, 6)
+chatPadding.PaddingRight  = UDim.new(0, 6)
+
+local chatInput = Instance.new("TextBox")
+chatInput.Size             = UDim2.new(0.72, 0, 0, 30)
+chatInput.Position         = UDim2.new(0.025, 0, 1, -36)
+chatInput.BackgroundColor3 = Color3.fromRGB(26, 32, 46)
+chatInput.TextColor3       = Color3.fromRGB(230, 255, 255)
+chatInput.PlaceholderColor3 = Color3.fromRGB(120, 140, 160)
+chatInput.Font             = Enum.Font.Gotham
+chatInput.TextSize         = 12
+chatInput.Text             = ""
+chatInput.PlaceholderText  = "和助手说点什么…"
+chatInput.ClearTextOnFocus = false
+chatInput.Parent           = pageAI
+Instance.new("UICorner", chatInput).CornerRadius = UDim.new(0, 6)
+local chatInputStroke = Instance.new("UIStroke", chatInput)
+chatInputStroke.Color        = CurrentTheme.accent
+chatInputStroke.Thickness    = 1
+chatInputStroke.Transparency = 0.5
+
+local sendBtn = Instance.new("TextButton")
+sendBtn.Size             = UDim2.new(0.22, 0, 0, 30)
+sendBtn.Position         = UDim2.new(0.755, 0, 1, -36)
+sendBtn.BackgroundColor3 = Color3.fromRGB(0, 150, 200)
+sendBtn.TextColor3       = Color3.new(1, 1, 1)
+sendBtn.Font             = Enum.Font.GothamBold
+sendBtn.TextSize         = 11
+sendBtn.Text             = "发送"
+sendBtn.AutoButtonColor  = false
+sendBtn.Parent           = pageAI
+Instance.new("UICorner", sendBtn).CornerRadius = UDim.new(0, 6)
+
+-- 消息气泡（返回 bubble 供外部调用）
+local function addChatMessage(text, isUser)
+    local bubble = Instance.new("Frame")
+    bubble.BackgroundTransparency = 1
+    bubble.Size = UDim2.new(1, 0, 0, 0)
+    bubble.AutomaticSize = Enum.AutomaticSize.Y
+    bubble.Parent = chatScroll
+
+    local container = Instance.new("Frame")
+    container.BackgroundColor3 = isUser and Color3.fromRGB(0, 100, 160) or Color3.fromRGB(36, 44, 60)
+    container.BorderSizePixel  = 0
+    container.AutomaticSize    = Enum.AutomaticSize.Y
+    container.Size             = isUser and UDim2.new(0.85, 0, 0, 0) or UDim2.new(1, 0, 0, 0)
+    container.Position         = isUser and UDim2.new(1, 0, 0, 0) or UDim2.new(0, 0, 0, 0)
+    container.AnchorPoint      = isUser and Vector2.new(1, 0) or Vector2.new(0, 0)
+    container.Parent           = bubble
+    Instance.new("UICorner", container).CornerRadius = UDim.new(0, 8)
+
+    local padding = Instance.new("UIPadding", container)
+    padding.PaddingTop    = UDim.new(0, 6)
+    padding.PaddingBottom = UDim.new(0, 6)
+    padding.PaddingLeft   = UDim.new(0, 10)
+    padding.PaddingRight  = UDim.new(0, 10)
+
+    local label = Instance.new("TextLabel")
+    label.BackgroundTransparency = 1
+    label.Size                   = UDim2.new(1, 0, 0, 0)
+    label.AutomaticSize          = Enum.AutomaticSize.Y
+    label.Text                   = text
+    label.TextColor3             = Color3.new(1, 1, 1)
+    label.Font                   = Enum.Font.Gotham
+    label.TextSize               = 11
+    label.TextWrapped            = true
+    label.TextXAlignment         = Enum.TextXAlignment.Left
+    label.TextYAlignment         = Enum.TextYAlignment.Top
+    label.Parent                 = container
+
+    task.defer(function()
+        task.wait()
+        chatScroll.CanvasPosition = Vector2.new(0, math.max(0, chatLayout.AbsoluteContentSize.Y))
+    end)
+
+    return bubble
+end
+
+-- ═══════════════════════════════════════════════════════
+--  本地规则引擎（API 失败时使用）
+-- ═══════════════════════════════════════════════════════
+local function contains(s, sub)
+    return string.find(s, sub, 1, true) ~= nil
+end
+
+local function aiRespondLocal(rawText)
+    local t = string.lower(rawText)
+
+    if contains(t, "帮助") or contains(t, "help") or contains(t, "怎么用")
+    or contains(t, "指令") or contains(t, "命令") then
+        return "我是 Sigma Hub 内置助手，可以帮你做这些事：\n" ..
+               "• 开/关 技能、自动卖鱼、锁定鱼条、ESP\n" ..
+               "• 查状态（显示所有开关当前状态）\n" ..
+               "• 传送 <玩家名>（传送到指定玩家）\n" ..
+               "• 查玩家 / 查NPC（列出当前列表）\n" ..
+               "• 时间（显示当前时间）\n" ..
+               "• 清空（清空聊天记录）"
+    end
+
+    if contains(t, "清空") or contains(t, "清除聊天") or contains(t, "clear") then
+        for _, child in ipairs(chatScroll:GetChildren()) do
+            if child:IsA("Frame") then child:Destroy() end
+        end
+        return "聊天记录已清空。"
+    end
+
+    if contains(t, "你好") or contains(t, "hello") or contains(t, "hi")
+    or contains(t, "嗨") or contains(t, "在吗") then
+        return "你好！我是 Sigma Hub 助手，随时可以帮你操作面板。试试说「帮助」看看我能干什么。"
+    end
+
+    if contains(t, "你叫什么") or contains(t, "你是谁") or contains(t, "your name") then
+        return "我是 Sigma Hub 内置助手，一个纯本地运行的规则机器人。如果配置了 API，还能接入真正的 AI。"
+    end
+
+    if contains(t, "时间") or contains(t, "time") or contains(t, "几点") then
+        local ok, str = pcall(function()
+            return DateTime.now():FormatLocalTime("YYYY-MM-DD HH:mm:ss", "zh-cn")
+        end)
+        if ok and str then return "当前时间：" .. str end
+        return "当前时间戳：" .. tostring(os.time())
+    end
+
+    if contains(t, "状态") or contains(t, "status") or contains(t, "开关") then
+        return string.format(
+            "当前状态：\n• 自动技能：%s\n• 自动卖鱼：%s\n• 锁定鱼条：%s\n• 玩家 ESP：%s\n• NPC ESP：%s\n• 卖出间隔：%s 秒",
+            State.AutoSkill and "开" or "关",
+            State.AutoSell  and "开" or "关",
+            State.BarLock   and "开" or "关",
+            State.PlayerESP and "开" or "关",
+            State.NpcESP    and "开" or "关",
+            tostring(CFG.SELL_INTERVAL)
+        )
+    end
+
+    if contains(t, "传送") or contains(t, "tp ") or contains(t, "传 ") then
+        local targetName = rawText:match("[传送tp ]+([%w_]+)")
+        if not targetName or targetName == "" then
+            return "用法：传送 <玩家名>，例如「传送 Builderman」"
+        end
+        local target = nil
+        for _, plr in ipairs(Players:GetPlayers()) do
+            if plr ~= LP and string.lower(plr.Name) == string.lower(targetName) then
+                target = plr
+                break
+            end
+        end
+        if not target then
+            for _, plr in ipairs(Players:GetPlayers()) do
+                if plr ~= LP and string.find(string.lower(plr.Name), string.lower(targetName), 1, true) then
+                    target = plr
+                    break
+                end
+            end
+        end
+        if not target or not target.Character then
+            return "找不到玩家「" .. targetName .. "」。"
+        end
+        local hrp = target.Character:FindFirstChild("HumanoidRootPart")
+        local myChar = LP.Character
+        local myHrp = myChar and myChar:FindFirstChild("HumanoidRootPart")
+        if hrp and myHrp then
+            myHrp.CFrame = hrp.CFrame * CFrame.new(0, 0, -CFG.TP_OFFSET)
+            return "已传送到玩家 " .. target.Name
+        end
+        return "传送失败，目标还没有角色。"
+    end
+
+    if contains(t, "查玩家") or contains(t, "玩家列表") or contains(t, "player list") then
+        local list = {}
+        for _, plr in ipairs(Players:GetPlayers()) do
+            if plr ~= LP then table.insert(list, plr.Name) end
+        end
+        if #list == 0 then return "当前没有其他玩家。" end
+        return "当前服务器玩家：" .. table.concat(list, "、")
+    end
+
+    if contains(t, "查npc") or contains(t, "查 npc") or contains(t, "npc列表") then
+        local list, seen = {}, {}
+        for _, obj in ipairs(workspace:GetDescendants()) do
+            if obj:IsA("Model") and isEligibleNpc(obj) then
+                local key = normalizeNpcName(obj.Name)
+                if not seen[key] then
+                    seen[key] = true
+                    table.insert(list, obj.Name)
+                end
+            end
+        end
+        if #list == 0 then return "当前没有符合条件的 NPC。" end
+        if #list > 20 then
+            return "当前有 " .. #list .. " 个符合条件的 NPC（只列出前 20 个）：\n" ..
+                table.concat({unpack(list, 1, 20)}, "、")
+        end
+        return "当前符合条件的 NPC：" .. table.concat(list, "、")
+    end
+
+    if contains(t, "技能") or contains(t, "skill") then
+        if contains(t, "关") or contains(t, "off") or contains(t, "停") then
+            setToggleState("AutoSkill", false)
+            return "已关闭自动全技能。"
+        elseif contains(t, "开") or contains(t, "on") or contains(t, "启") then
+            setToggleState("AutoSkill", true)
+            return "已开启自动全技能。"
+        end
+        return "自动全技能当前：" .. (State.AutoSkill and "开启" or "关闭")
+    end
+
+    if contains(t, "卖鱼") or contains(t, "sell") then
+        if contains(t, "关") or contains(t, "off") then
+            setToggleState("AutoSell", false)
+            return "已关闭自动卖鱼。"
+        elseif contains(t, "开") or contains(t, "on") then
+            setToggleState("AutoSell", true)
+            return "已开启自动卖鱼，间隔 " .. tostring(CFG.SELL_INTERVAL) .. " 秒。"
+        elseif contains(t, "现在") or contains(t, "立即") or contains(t, "马上") then
+            pcall(function()
+                local events = ReplicatedStorage:FindFirstChild("Events")
+                if events then
+                    local sell = events:FindFirstChild("SellFish")
+                    if sell then sell:FireServer("All") return end
+                end
+                local sell = ReplicatedStorage:FindFirstChild("SellFish")
+                if sell then sell:FireServer("All") end
+            end)
+            return "已立即卖出所有鱼。"
+        end
+        return "自动卖鱼当前：" .. (State.AutoSell and "开启" or "关闭")
+    end
+
+    if contains(t, "鱼条") or contains(t, "锁定") or contains(t, "bar") then
+        if contains(t, "关") or contains(t, "off") then
+            setToggleState("BarLock", false)
+            return "已关闭鱼条锁定。"
+        elseif contains(t, "开") or contains(t, "on") then
+            setToggleState("BarLock", true)
+            return "已开启鱼条锁定。"
+        end
+        return "鱼条锁定当前：" .. (State.BarLock and "开启" or "关闭")
+    end
+
+    if contains(t, "esp") then
+        if contains(t, "关") or contains(t, "off") then
+            setToggleState("PlayerESP", false)
+            setToggleState("NpcESP", false)
+            return "已关闭玩家和 NPC 的 ESP。"
+        elseif contains(t, "玩家") and (contains(t, "开") or contains(t, "on")) then
+            setToggleState("PlayerESP", true)
+            return "已开启玩家 ESP。"
+        elseif contains(t, "npc") and (contains(t, "开") or contains(t, "on")) then
+            setToggleState("NpcESP", true)
+            return "已开启 NPC ESP。"
+        elseif contains(t, "开") or contains(t, "on") then
+            setToggleState("PlayerESP", true)
+            setToggleState("NpcESP", true)
+            return "已开启玩家和 NPC 的 ESP。"
+        end
+        return string.format("ESP 状态：玩家 %s，NPC %s",
+            State.PlayerESP and "开" or "关",
+            State.NpcESP and "开" or "关")
+    end
+
+    return "抱歉，我还不太理解「" .. rawText .. "」。输入「帮助」可以看我会做的事情。"
+end
+
+-- ═══════════════════════════════════════════════════════
+--  API 调用
+-- ═══════════════════════════════════════════════════════
+
+-- 检测 HTTP 函数
+local httpRequestFn = nil
+local httpFnName    = "无"
+if syn and syn.request then
+    httpRequestFn = syn.request; httpFnName = "syn.request"
+elseif http and http.request then
+    httpRequestFn = http.request; httpFnName = "http.request"
+elseif request then
+    httpRequestFn = request; httpFnName = "request"
+elseif http_request then
+    httpRequestFn = http_request; httpFnName = "http_request"
+elseif fluxus and fluxus.request then
+    httpRequestFn = fluxus.request; httpFnName = "fluxus.request"
+end
+print("★ [Sigma Hub] HTTP 支持：" .. httpFnName)
+
+local aiChatHistory = {}
+
+local function buildAIRequestBody(userMessage)
+    local messages = {}
+    table.insert(messages, { role = "system", content = AI_CONFIG.SYSTEM_PROMPT })
+    for _, msg in ipairs(aiChatHistory) do
+        table.insert(messages, msg)
+    end
+    table.insert(messages, { role = "user", content = userMessage })
+    return {
+        model       = AI_CONFIG.MODEL,
+        messages    = messages,
+        temperature = 0.7,
+        max_tokens  = 500,
+    }
+end
+
+local function callAI(userMessage)
+    if not httpRequestFn then
+        return nil, "当前执行器不支持 HTTP 请求"
+    end
+    if not AI_CONFIG.API_KEY or AI_CONFIG.API_KEY == ""
+    or AI_CONFIG.API_KEY == "在这里填入你的API-Key" then
+        return nil, "未配置 API Key（请在脚本顶部 AI_CONFIG 里填写）"
+    end
+
+    local body = buildAIRequestBody(userMessage)
+    local jsonBody
+    local okEncode, encodeErr = pcall(function()
+        jsonBody = HttpService:JSONEncode(body)
+    end)
+    if not okEncode then
+        return nil, "请求体编码失败：" .. tostring(encodeErr)
+    end
+
+    local okReq, response = pcall(function()
+        return httpRequestFn({
+            Url     = AI_CONFIG.API_URL,
+            Method  = "POST",
+            Headers = {
+                ["Content-Type"]  = "application/json",
+                ["Authorization"] = "Bearer " .. AI_CONFIG.API_KEY,
+            },
+            Body = jsonBody,
+        })
+    end)
+
+    if not okReq then
+        return nil, "请求发送失败：" .. tostring(response)
+    end
+    if not response then
+        return nil, "服务器无响应"
+    end
+    if not response.Body or response.Body == "" then
+        return nil, "响应为空（状态码 " .. tostring(response.StatusCode) .. "）"
+    end
+
+    local okDecode, data = pcall(function()
+        return HttpService:JSONDecode(response.Body)
+    end)
+    if not okDecode then
+        return nil, "响应解析失败：" .. tostring(data)
+    end
+
+    if data.choices and data.choices[1]
+    and data.choices[1].message
+    and data.choices[1].message.content then
+        local reply = data.choices[1].message.content
+        table.insert(aiChatHistory, { role = "user",      content = userMessage })
+        table.insert(aiChatHistory, { role = "assistant", content = reply })
+        while #aiChatHistory > AI_CONFIG.MAX_HISTORY * 2 do
+            table.remove(aiChatHistory, 1)
+        end
+        return reply
+    end
+
+    if data.error and data.error.message then
+        return nil, "API 错误：" .. data.error.message
+    end
+
+    return nil, "未知响应格式（状态码 " .. tostring(response.StatusCode) .. "）"
+end
+
+-- 对外入口：本地指令优先，其他走 API，失败回退本地
+local function aiRespond(rawText)
+    local localKeywords = {
+        "帮助", "help", "指令", "清空", "clear", "状态", "status",
+        "传送", "查玩家", "查npc", "查 npc", "npc列表",
+        "开技能", "关技能", "开卖鱼", "关卖鱼", "开鱼条", "关鱼条",
+        "现在卖鱼", "立即卖鱼", "开esp", "关esp",
+    }
+    local lower = string.lower(rawText)
+    for _, kw in ipairs(localKeywords) do
+        if string.find(lower, string.lower(kw), 1, true) then
+            return aiRespondLocal(rawText)
+        end
+    end
+
+    local reply, err = callAI(rawText)
+    if reply then return reply end
+
+    if AI_CONFIG.FALLBACK_TO_LOCAL then
+        local fallback = aiRespondLocal(rawText)
+        return fallback .. "\n\n（AI 暂不可用：" .. (err or "未知错误") .. "，已回退本地模式）"
+    end
+    return "AI 服务暂时不可用：" .. (err or "未知错误")
+end
+
+-- 发送处理
+local function handleSend()
+    local text = chatInput.Text
+    if not text or text == "" then return end
+    chatInput.Text = ""
+    pcall(function() sClick:Play() end)
+
+    addChatMessage(text, true)
+
+    local thinkingBubble = addChatMessage("正在思考…", false)
+    thinkingBubble.Name = "ThinkingBubble"
+
+    task.wait(0.15)
+
+    local reply = aiRespond(text)
+
+    local thinking = chatScroll:FindFirstChild("ThinkingBubble")
+    if thinking then thinking:Destroy() end
+
+    addChatMessage(reply, false)
+end
+
+sendBtn.MouseButton1Click:Connect(handleSend)
+chatInput.FocusLost:Connect(function(enter)
+    if enter then handleSend() end
+end)
+
+-- 首次欢迎消息
+addChatMessage(
+    "你好，我是 Sigma Hub 内置助手。\n" ..
+    "• 本地指令：输入「帮助」查看\n" ..
+    "• 真实 AI：在脚本顶部 AI_CONFIG 填好 API Key 后，可以直接聊任何话题",
+    false
+)
+
+-- =====================================================================
 --  传送页
--- ─────────────────────────────────────────────────────────────────────
+-- =====================================================================
 local tpPlayerBtns = {}
 local tpNpcBtns    = {}
 local tpHeaderPlayer, tpHeaderNpc
@@ -1656,24 +2019,6 @@ local function newTpButton(parent, y, label, color, onTp)
     btn.ClipsDescendants       = true
     btn.Parent                 = parent
     Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
-    local st = Instance.new("UIStroke", btn)
-    st.Color        = Color3.fromRGB(80, 90, 110)
-    st.Thickness    = 1
-    st.Transparency = 0.5
-
-    btn.MouseEnter:Connect(function()
-        TweenService:Create(btn, TweenInfo.new(0.12), {
-            BackgroundColor3 = Color3.fromRGB(
-                math.min(color.R * 255 + 25, 255) / 255,
-                math.min(color.G * 255 + 25, 255) / 255,
-                math.min(color.B * 255 + 25, 255) / 255
-            ),
-        }):Play()
-    end)
-    btn.MouseLeave:Connect(function()
-        TweenService:Create(btn, TweenInfo.new(0.12), { BackgroundColor3 = color }):Play()
-    end)
-
     btn.MouseButton1Click:Connect(function()
         pcall(function() sTp:Play() end)
         if onTp then pcall(onTp) end
@@ -1729,29 +2074,26 @@ local function refreshTeleportList()
 
     if #playerList == 0 then
         local empty = Instance.new("TextLabel")
-        empty.Size                   = UDim2.new(0.95, 0, 0, 26)
-        empty.Position               = UDim2.new(0.025, 0, 0, y)
-        empty.BackgroundColor3       = Color3.fromRGB(22, 26, 38)
-        empty.TextColor3             = Color3.fromRGB(150, 160, 180)
-        empty.Font                   = Enum.Font.Gotham
-        empty.TextSize               = 10
-        empty.Text                   = "  暂无其他玩家"
-        empty.Parent                 = pageTp
+        empty.Size = UDim2.new(0.95, 0, 0, 26)
+        empty.Position = UDim2.new(0.025, 0, 0, y)
+        empty.BackgroundColor3 = Color3.fromRGB(22, 26, 38)
+        empty.TextColor3 = Color3.fromRGB(150, 160, 180)
+        empty.Font = Enum.Font.Gotham
+        empty.TextSize = 10
+        empty.Text = "  暂无其他玩家"
+        empty.Parent = pageTp
         Instance.new("UICorner", empty).CornerRadius = UDim.new(0, 6)
         table.insert(tpPlayerBtns, empty)
         y = y + 32
     else
         for _, entry in ipairs(playerList) do
             local plrModel = entry.model
-            local btn = newTpButton(
-                pageTp, y, "  🎯  " .. entry.name,
-                Color3.fromRGB(0, 100, 190),
-                function()
+            local btn = newTpButton(pageTp, y, "  🎯  " .. entry.name,
+                Color3.fromRGB(0, 100, 190), function()
                     if not plrModel.Parent then return end
                     local hrp = plrModel:FindFirstChild("HumanoidRootPart")
                     if hrp then teleportToHrp(hrp) end
-                end
-            )
+                end)
             table.insert(tpPlayerBtns, btn)
             y = y + 34
         end
@@ -1778,30 +2120,25 @@ local function refreshTeleportList()
 
     if #npcList == 0 then
         local empty = Instance.new("TextLabel")
-        empty.Size                   = UDim2.new(0.95, 0, 0, 26)
-        empty.Position               = UDim2.new(0.025, 0, 0, y)
-        empty.BackgroundColor3       = Color3.fromRGB(22, 26, 38)
-        empty.TextColor3             = Color3.fromRGB(150, 160, 180)
-        empty.Font                   = Enum.Font.Gotham
-        empty.TextSize               = 10
-        empty.Text                   = CFG.FilterQuestNpcs
-            and "  暂未发现任务/刷新 NPC"
-            or  "  暂未发现 NPC"
-        empty.Parent                 = pageTp
+        empty.Size = UDim2.new(0.95, 0, 0, 26)
+        empty.Position = UDim2.new(0.025, 0, 0, y)
+        empty.BackgroundColor3 = Color3.fromRGB(22, 26, 38)
+        empty.TextColor3 = Color3.fromRGB(150, 160, 180)
+        empty.Font = Enum.Font.Gotham
+        empty.TextSize = 10
+        empty.Text = CFG.FilterQuestNpcs and "  暂未发现任务/刷新 NPC" or "  暂未发现 NPC"
+        empty.Parent = pageTp
         Instance.new("UICorner", empty).CornerRadius = UDim.new(0, 6)
         table.insert(tpNpcBtns, empty)
         y = y + 32
     else
         for _, npcModel in ipairs(npcList) do
-            local btn = newTpButton(
-                pageTp, y, "  📍  " .. npcModel.Name,
-                Color3.fromRGB(0, 130, 100),
-                function()
+            local btn = newTpButton(pageTp, y, "  📍  " .. npcModel.Name,
+                Color3.fromRGB(0, 130, 100), function()
                     if not npcModel.Parent then return end
                     local hrp = npcModel:FindFirstChild("HumanoidRootPart")
                     if hrp then teleportToHrp(hrp) end
-                end
-            )
+                end)
             table.insert(tpNpcBtns, btn)
             y = y + 34
         end
@@ -1820,6 +2157,7 @@ end)
 tabTheme.MouseButton1Click:Connect(function()    selectTab(tabTheme,    pageTheme)    end)
 tabFun.MouseButton1Click:Connect(function()      selectTab(tabFun,      pageFun)      end)
 tabSettings.MouseButton1Click:Connect(function() selectTab(tabSettings, pageSettings) end)
+tabAI.MouseButton1Click:Connect(function()       selectTab(tabAI,       pageAI)       end)
 
 selectTab(tabSkill, pageSkill)
 
@@ -1964,11 +2302,7 @@ RunService.RenderStepped:Connect(function()
                     local hum = char:FindFirstChildOfClass("Humanoid")
                     local hrp = char:FindFirstChild("HumanoidRootPart")
                     if hum and hrp and hum.Health > 0 then
-                        validModels[char] = {
-                            kind  = "player",
-                            color = ESP.PlayerColor,
-                            name  = plr.Name,
-                        }
+                        validModels[char] = { kind = "player", color = ESP.PlayerColor, name = plr.Name }
                     end
                 end
             end
@@ -1991,20 +2325,14 @@ RunService.RenderStepped:Connect(function()
             if npc.Parent then
                 local hum = npc:FindFirstChildOfClass("Humanoid")
                 if hum and hum.Health > 0 then
-                    validModels[npc] = {
-                        kind  = "npc",
-                        color = ESP.NpcColor,
-                        name  = npc.Name,
-                    }
+                    validModels[npc] = { kind = "npc", color = ESP.NpcColor, name = npc.Name }
                 end
             end
         end
     end
 
     for model, entry in pairs(ESP.Entries) do
-        if not validModels[model] then
-            removeESPEntry(model)
-        end
+        if not validModels[model] then removeESPEntry(model) end
     end
 
     for model, info in pairs(validModels) do
@@ -2040,7 +2368,6 @@ end)
 -- =====================================================================
 --  后台引擎
 -- =====================================================================
-
 task.spawn(function()
     while hubGui.Parent do
         task.wait(0.45)
@@ -2086,11 +2413,7 @@ local function fireFishing(arg)
     if not target then target = ReplicatedStorage:FindFirstChild("Fishing") end
     if not target then return false end
     return pcall(function()
-        if arg ~= nil then
-            target:FireServer(arg)
-        else
-            target:FireServer()
-        end
+        if arg ~= nil then target:FireServer(arg) else target:FireServer() end
     end)
 end
 
@@ -2099,7 +2422,6 @@ RunService.RenderStepped:Connect(function()
     pcall(function()
         local barFrame = getFishingBarFrame()
         if not barFrame then return end
-
         local bar = barFrame:FindFirstChild("Bar")
             or barFrame:FindFirstChild("Slider")
             or barFrame:FindFirstChild("Progress")
@@ -2108,7 +2430,6 @@ RunService.RenderStepped:Connect(function()
         if bar and bar:IsA("GuiObject") then
             bar.Position = UDim2.new(0.5, 0, bar.Position.Y.Scale, 0)
         end
-
         fireFishing("1")
     end)
 end)
@@ -2117,7 +2438,6 @@ task.spawn(function()
     local lastSell = tick()
     while hubGui.Parent do
         task.wait(0.1)
-
         if State.AutoSell then
             local now = tick()
             if now - lastSell >= CFG.SELL_INTERVAL then
@@ -2141,4 +2461,5 @@ task.spawn(function()
     end
 end)
 
-print("★ [Sigma Hub] 加载成功（含加载屏 / NPC 过滤 + 去重 / 消遣小游戏 / UI 缩放设置）。")
+print("★ [Sigma Hub] 加载成功（含 AI 助手 API 接入 / 加载屏 / NPC 过滤 + 去重 / 小游戏 / UI 缩放）。")
+print("★ [Sigma Hub] 想用真实 AI：搜索脚本里的 AI_CONFIG，填入 API_KEY / API_URL / MODEL 三行。")
