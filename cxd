@@ -1,6 +1,6 @@
 -- =====================================================================
 --  ★ Sigma Hub ★
---  功能：自动技能 / 鱼条锁定 / 自动卖鱼 / ESP / 传送 / 主题
+--  功能：加载屏 / 自动技能 / 鱼条锁定 / 自动卖鱼 / ESP / 传送 / 主题 / 消遣 / 设置
 --  NPC 过滤：只显示任务/刷新 NPC，同名/相似名只保留最近一个
 -- =====================================================================
 
@@ -14,28 +14,35 @@ local StarterGui          = game:GetService("StarterGui")
 local CoreGui             = game:GetService("CoreGui")
 local CollectionService   = game:GetService("CollectionService")
 
-local LP = Players.LocalPlayer
+local LP     = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
 
 -- ⚙️ 配置
 local CFG = {
+    LOAD_TIME  = 3.2,
+    STAR_COUNT = 55,
+    OVERSCAN   = 0.10,
+
     SELL_INTERVAL = 3,
     SELL_MIN      = 0.5,
     SELL_MAX      = 3600,
     TP_OFFSET     = 3,
     TP_REFRESH    = 3,
 
-    -- 🎯 NPC 过滤设置
-    FilterQuestNpcs  = true,    -- 只显示有任务/定时刷新的 NPC
-    DedupeNpcs       = true,    -- 同名/相似名 NPC 只保留一个
-    AggressiveDedupe = true,    -- 激进去重：忽略大小写、空格、下划线、连字符、数字、括号
+    -- 🖥️ UI 缩放
+    UI_SCALE      = 1.0,
+    UI_SCALE_MIN  = 0.5,
+    UI_SCALE_MAX  = 1.8,
 
-    -- 📝 自定义别名表：左边写 NPC 出现时的各种写法（小写），右边写统一归并后的 key
-    -- 例如把 "chu xin" 和 "chuxin" 都归为 "chuxin"
+    FilterQuestNpcs  = true,
+    DedupeNpcs       = true,
+    AggressiveDedupe = true,
+
     NPC_NAME_ALIASES = {
-        ["chu xin"]  = "chuxin",
-        ["chuxin"]   = "chuxin",
-        ["chu_xin"]  = "chuxin",
-        ["chu-xin"]  = "chuxin",
+        ["chu xin"] = "chuxin",
+        ["chuxin"]  = "chuxin",
+        ["chu_xin"] = "chuxin",
+        ["chu-xin"] = "chuxin",
     },
 
     NPC_KEYWORDS = {
@@ -81,7 +88,9 @@ local function destroyOld()
     if pg then table.insert(parents, pg) end
     for _, parent in ipairs(parents) do
         for _, child in ipairs(parent:GetChildren()) do
-            if child.Name == "SigmaHub" or child.Name == "SigmaHub_ESP" then
+            if child.Name == "SigmaHub"
+            or child.Name == "SigmaHub_ESP"
+            or child.Name == "SigmaHub_Loader" then
                 pcall(function() child:Destroy() end)
             end
         end
@@ -89,7 +98,430 @@ local function destroyOld()
 end
 destroyOld()
 
--- 📦 状态
+-- =====================================================================
+--  ██  PART 1 — 加载屏
+-- =====================================================================
+local loadGui = Instance.new("ScreenGui")
+loadGui.Name           = "SigmaHub_Loader"
+loadGui.ResetOnSpawn   = false
+loadGui.IgnoreGuiInset = true
+loadGui.DisplayOrder   = 100
+pcall(function() loadGui.Parent = CoreGui end)
+if not loadGui.Parent then loadGui.Parent = LP:WaitForChild("PlayerGui") end
+
+local loadRoot = Instance.new("Frame")
+loadRoot.Size                   = UDim2.new(1, 0, 1, 0)
+loadRoot.Position               = UDim2.new(0, 0, -1, 0)
+loadRoot.BackgroundTransparency = 1
+loadRoot.BorderSizePixel        = 0
+loadRoot.ClipsDescendants       = false
+loadRoot.ZIndex                 = 5
+loadRoot.Parent                 = loadGui
+
+local loadBg = Instance.new("Frame")
+loadBg.Size                   = UDim2.new(1 + CFG.OVERSCAN * 2, 0, 1 + CFG.OVERSCAN * 2, 0)
+loadBg.Position               = UDim2.new(-CFG.OVERSCAN, 0, -CFG.OVERSCAN, 0)
+loadBg.BackgroundColor3       = Color3.fromRGB(10, 14, 24)
+loadBg.BorderSizePixel        = 0
+loadBg.ZIndex                 = 5
+loadBg.Parent                 = loadRoot
+
+local loadBgGrad = Instance.new("UIGradient")
+loadBgGrad.Rotation = 90
+loadBgGrad.Color = ColorSequence.new({
+    ColorSequenceKeypoint.new(0,   Color3.fromRGB(8, 12, 22)),
+    ColorSequenceKeypoint.new(0.5, Color3.fromRGB(20, 28, 52)),
+    ColorSequenceKeypoint.new(1,   Color3.fromRGB(8, 12, 22)),
+})
+loadBgGrad.Parent = loadBg
+
+local loadStars = {}
+for i = 1, CFG.STAR_COUNT do
+    local star = Instance.new("Frame")
+    local sz = math.random(2, 5)
+    star.Size                   = UDim2.new(0, sz, 0, sz)
+    star.Position               = UDim2.new(math.random(), 0, math.random(), 0)
+    star.BackgroundColor3       = Color3.new(1, 1, 1)
+    star.BackgroundTransparency = math.random(40, 85) / 100
+    star.BorderSizePixel        = 0
+    star.ZIndex                 = 6
+    star.Parent                 = loadBg
+    Instance.new("UICorner", star).CornerRadius = UDim.new(1, 0)
+    table.insert(loadStars, star)
+end
+
+for _, star in ipairs(loadStars) do
+    task.spawn(function()
+        while star.Parent and loadRoot.Parent do
+            local target = math.random(30, 90) / 100
+            TweenService:Create(star, TweenInfo.new(math.random(8, 20) / 10), {
+                BackgroundTransparency = target
+            }):Play()
+            task.wait(math.random(10, 30) / 10)
+        end
+    end)
+end
+
+task.spawn(function()
+    while loadRoot.Parent do
+        local dt = RunService.Heartbeat:Wait()
+        for _, star in ipairs(loadStars) do
+            if star.Parent then
+                local p = star.Position
+                local newY = p.Y.Scale + dt * 0.008
+                if newY > 1.1 then
+                    star.Position = UDim2.new(math.random(), 0, -0.05, 0)
+                else
+                    star.Position = UDim2.new(p.X.Scale, 0, newY, 0)
+                end
+            end
+        end
+    end
+end)
+
+local function loadCornerGlow(ax, ay, px, py)
+    local glow = Instance.new("ImageLabel")
+    glow.Size                   = UDim2.new(0, 520, 0, 520)
+    glow.AnchorPoint            = Vector2.new(ax, ay)
+    glow.Position               = UDim2.new(px, 0, py, 0)
+    glow.BackgroundTransparency = 1
+    glow.Image                  = "rbxasset://textures/particles/sparkles_main.dds"
+    glow.ImageColor3            = CurrentTheme.accent
+    glow.ImageTransparency      = 0.9
+    glow.ZIndex                 = 7
+    glow.Parent                 = loadBg
+end
+loadCornerGlow(0, 1, 0.02, 0.98)
+loadCornerGlow(1, 1, 0.98, 0.98)
+loadCornerGlow(0, 0, 0.02, 0.02)
+loadCornerGlow(1, 0, 0.98, 0.02)
+
+local loadTitleArea = Instance.new("Frame")
+loadTitleArea.Size                   = UDim2.new(1, 0, 0, 220)
+loadTitleArea.Position               = UDim2.new(0, 0, 0.26, 0)
+loadTitleArea.BackgroundTransparency = 1
+loadTitleArea.ZIndex                 = 15
+loadTitleArea.Parent                 = loadRoot
+
+local loadLineTop = Instance.new("Frame")
+loadLineTop.Size             = UDim2.new(0, 0, 0, 3)
+loadLineTop.Position         = UDim2.new(0.5, 0, 0, -14)
+loadLineTop.AnchorPoint      = Vector2.new(0.5, 0)
+loadLineTop.BackgroundColor3 = CurrentTheme.accent
+loadLineTop.BorderSizePixel  = 0
+loadLineTop.ZIndex           = 16
+loadLineTop.Parent           = loadTitleArea
+
+local loadLineBottom = Instance.new("Frame")
+loadLineBottom.Size             = UDim2.new(0, 0, 0, 2)
+loadLineBottom.Position         = UDim2.new(0.5, 0, 1, 14)
+loadLineBottom.AnchorPoint      = Vector2.new(0.5, 0)
+loadLineBottom.BackgroundColor3 = Color3.fromRGB(170, 130, 255)
+loadLineBottom.BorderSizePixel  = 0
+loadLineBottom.ZIndex           = 16
+loadLineBottom.Parent           = loadTitleArea
+
+local loadMainTitle = Instance.new("TextLabel")
+loadMainTitle.Size                   = UDim2.new(0.9, 0, 0, 80)
+loadMainTitle.Position               = UDim2.new(0.05, 0, 0.16, 0)
+loadMainTitle.BackgroundTransparency = 1
+loadMainTitle.Text                   = "★ SIGMA HUB ★"
+loadMainTitle.TextColor3             = CurrentTheme.accent
+loadMainTitle.Font                   = Enum.Font.GothamBold
+loadMainTitle.TextSize               = 50
+loadMainTitle.TextTransparency       = 1
+loadMainTitle.ZIndex                 = 17
+loadMainTitle.Parent                 = loadTitleArea
+local lmtSize = Instance.new("UITextSizeConstraint", loadMainTitle)
+lmtSize.MinTextSize, lmtSize.MaxTextSize = 22, 50
+
+local loadTitleGlow = Instance.new("TextLabel")
+loadTitleGlow.Size                   = loadMainTitle.Size
+loadTitleGlow.Position               = loadMainTitle.Position
+loadTitleGlow.BackgroundTransparency = 1
+loadTitleGlow.Text                   = loadMainTitle.Text
+loadTitleGlow.TextColor3             = CurrentTheme.accent
+loadTitleGlow.Font                   = Enum.Font.GothamBold
+loadTitleGlow.TextSize               = 50
+loadTitleGlow.TextTransparency       = 1
+loadTitleGlow.ZIndex                 = 16
+loadTitleGlow.Parent                 = loadTitleArea
+local ltgSize = Instance.new("UITextSizeConstraint", loadTitleGlow)
+ltgSize.MinTextSize, ltgSize.MaxTextSize = 22, 50
+
+local loadSubtitle = Instance.new("TextLabel")
+loadSubtitle.Size                   = UDim2.new(0.8, 0, 0, 36)
+loadSubtitle.Position               = UDim2.new(0.1, 0, 0.66, 0)
+loadSubtitle.BackgroundTransparency = 1
+loadSubtitle.Text                   = "系统正在初始化"
+loadSubtitle.TextColor3             = Color3.fromRGB(170, 130, 255)
+loadSubtitle.Font                   = Enum.Font.Gotham
+loadSubtitle.TextSize               = 17
+loadSubtitle.TextTransparency       = 1
+loadSubtitle.ZIndex                 = 17
+loadSubtitle.Parent                 = loadTitleArea
+local lsubSize = Instance.new("UITextSizeConstraint", loadSubtitle)
+lsubSize.MinTextSize, lsubSize.MaxTextSize = 11, 17
+
+local loadProgressArea = Instance.new("Frame")
+loadProgressArea.Size                   = UDim2.new(1, 0, 0, 120)
+loadProgressArea.Position               = UDim2.new(0, 0, 0.62, 0)
+loadProgressArea.BackgroundTransparency = 1
+loadProgressArea.ZIndex                 = 15
+loadProgressArea.Parent                 = loadRoot
+
+local loadBarTrack = Instance.new("Frame")
+loadBarTrack.Size                   = UDim2.new(0.66, 0, 0, 7)
+loadBarTrack.Position               = UDim2.new(0.08, 0, 0.22, 0)
+loadBarTrack.BackgroundColor3       = Color3.fromRGB(35, 42, 62)
+loadBarTrack.BackgroundTransparency = 0.25
+loadBarTrack.BorderSizePixel        = 0
+loadBarTrack.ZIndex                 = 16
+loadBarTrack.Parent                 = loadProgressArea
+Instance.new("UICorner", loadBarTrack).CornerRadius = UDim.new(1, 0)
+
+local loadBarFill = Instance.new("Frame")
+loadBarFill.Size             = UDim2.new(0, 0, 1, 0)
+loadBarFill.BackgroundColor3 = CurrentTheme.accent
+loadBarFill.BorderSizePixel  = 0
+loadBarFill.ClipsDescendants = true
+loadBarFill.ZIndex           = 17
+loadBarFill.Parent           = loadBarTrack
+Instance.new("UICorner", loadBarFill).CornerRadius = UDim.new(1, 0)
+
+local loadFillGrad = Instance.new("UIGradient")
+loadFillGrad.Rotation = 90
+loadFillGrad.Color = ColorSequence.new({
+    ColorSequenceKeypoint.new(0,   CurrentTheme.accent),
+    ColorSequenceKeypoint.new(0.5, Color3.fromRGB(150, 240, 255)),
+    ColorSequenceKeypoint.new(1,   CurrentTheme.accent),
+})
+loadFillGrad.Parent = loadBarFill
+
+local loadBarShine = Instance.new("Frame")
+loadBarShine.Size                   = UDim2.new(0, 32, 1, 0)
+loadBarShine.Position               = UDim2.new(0, 0, 0, 0)
+loadBarShine.BackgroundColor3       = Color3.new(1, 1, 1)
+loadBarShine.BackgroundTransparency = 0.65
+loadBarShine.BorderSizePixel        = 0
+loadBarShine.ZIndex                 = 18
+loadBarShine.Parent                 = loadBarFill
+
+local loadPctText = Instance.new("TextLabel")
+loadPctText.Size                   = UDim2.new(0, 80, 0, 30)
+loadPctText.AnchorPoint            = Vector2.new(1, 0)
+loadPctText.Position               = UDim2.new(0.97, 0, 0.13, 0)
+loadPctText.BackgroundTransparency = 1
+loadPctText.Text                   = "0%"
+loadPctText.TextColor3             = CurrentTheme.accent
+loadPctText.Font                   = Enum.Font.GothamBold
+loadPctText.TextSize               = 16
+loadPctText.TextXAlignment         = Enum.TextXAlignment.Right
+loadPctText.TextTransparency       = 1
+loadPctText.ZIndex                 = 17
+loadPctText.Parent                 = loadProgressArea
+
+local loadStatusPill = Instance.new("Frame")
+loadStatusPill.Size                   = UDim2.new(0, 240, 0, 34)
+loadStatusPill.AnchorPoint            = Vector2.new(0.5, 0)
+loadStatusPill.Position               = UDim2.new(0.5, 0, 0.6, 0)
+loadStatusPill.BackgroundColor3       = Color3.fromRGB(22, 28, 44)
+loadStatusPill.BackgroundTransparency = 0.3
+loadStatusPill.ZIndex                 = 16
+loadStatusPill.Visible                = false
+loadStatusPill.Parent                 = loadProgressArea
+Instance.new("UICorner", loadStatusPill).CornerRadius = UDim.new(1, 0)
+
+local loadPillStroke = Instance.new("UIStroke", loadStatusPill)
+loadPillStroke.Color        = CurrentTheme.accent
+loadPillStroke.Transparency = 0.55
+loadPillStroke.Thickness    = 1
+
+local loadStatusDot = Instance.new("Frame")
+loadStatusDot.Size             = UDim2.new(0, 9, 0, 9)
+loadStatusDot.AnchorPoint      = Vector2.new(0, 0.5)
+loadStatusDot.Position         = UDim2.new(0, 15, 0.5, 0)
+loadStatusDot.BackgroundColor3 = CurrentTheme.accent
+loadStatusDot.BorderSizePixel  = 0
+loadStatusDot.ZIndex           = 18
+loadStatusDot.Parent           = loadStatusPill
+Instance.new("UICorner", loadStatusDot).CornerRadius = UDim.new(1, 0)
+
+local loadStatusText = Instance.new("TextLabel")
+loadStatusText.Size                   = UDim2.new(1, -36, 1, 0)
+loadStatusText.Position               = UDim2.new(0, 32, 0, 0)
+loadStatusText.BackgroundTransparency = 1
+loadStatusText.Text                   = "正在启动系统…"
+loadStatusText.TextColor3             = Color3.fromRGB(170, 130, 255)
+loadStatusText.Font                   = Enum.Font.GothamMedium
+loadStatusText.TextSize               = 13
+loadStatusText.TextXAlignment         = Enum.TextXAlignment.Left
+loadStatusText.TextTransparency       = 1
+loadStatusText.ZIndex                 = 18
+loadStatusText.Parent                 = loadStatusPill
+
+local loadWelcomeText = Instance.new("TextLabel")
+loadWelcomeText.Size                   = UDim2.new(0.9, 0, 0, 60)
+loadWelcomeText.Position               = UDim2.new(0.05, 0, 0.44, 0)
+loadWelcomeText.BackgroundTransparency = 1
+loadWelcomeText.Text                   = "欢迎使用 SIGMA HUB"
+loadWelcomeText.TextColor3             = CurrentTheme.accent
+loadWelcomeText.Font                   = Enum.Font.GothamBold
+loadWelcomeText.TextSize               = 34
+loadWelcomeText.TextWrapped            = true
+loadWelcomeText.TextTransparency       = 1
+loadWelcomeText.ZIndex                 = 17
+loadWelcomeText.Parent                 = loadRoot
+local lwcSize = Instance.new("UITextSizeConstraint", loadWelcomeText)
+lwcSize.MinTextSize, lwcSize.MaxTextSize = 18, 34
+
+TweenService:Create(loadRoot, TweenInfo.new(1.3, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
+    Position = UDim2.new(0, 0, 0, 0)
+}):Play()
+
+TweenService:Create(loadLineTop, TweenInfo.new(0.9, Enum.EasingStyle.Quad), {
+    Size = UDim2.new(0, 240, 0, 3)
+}):Play()
+
+TweenService:Create(loadLineBottom, TweenInfo.new(0.9, Enum.EasingStyle.Quad), {
+    Size = UDim2.new(0, 180, 0, 2)
+}):Play()
+
+task.delay(0.55, function()
+    TweenService:Create(loadMainTitle, TweenInfo.new(1.1), {TextTransparency = 0}):Play()
+    TweenService:Create(loadTitleGlow, TweenInfo.new(1.1), {TextTransparency = 0.55}):Play()
+    TweenService:Create(loadSubtitle,  TweenInfo.new(1.4), {TextTransparency = 0}):Play()
+    TweenService:Create(loadPctText,   TweenInfo.new(1.1), {TextTransparency = 0}):Play()
+
+    loadStatusPill.Visible = true
+    loadStatusPill.BackgroundTransparency = 1
+    TweenService:Create(loadStatusPill, TweenInfo.new(1.1), {BackgroundTransparency = 0.3}):Play()
+    TweenService:Create(loadStatusText, TweenInfo.new(1.1), {TextTransparency = 0}):Play()
+end)
+
+local loadFloating = true
+task.spawn(function()
+    local base = loadMainTitle.Position
+    local t = 0
+    while loadFloating and loadMainTitle.Parent do
+        t = t + RunService.RenderStepped:Wait()
+        local dy  = math.sin(t * 1.2) * 6
+        local dx  = math.sin(t * 0.7) * 9
+        local rot = math.sin(t * 0.7) * 2.2
+        local pos = UDim2.new(base.X.Scale, base.X.Offset + dx, base.Y.Scale, base.Y.Offset + dy)
+        loadMainTitle.Position = pos
+        loadMainTitle.Rotation = rot
+        loadTitleGlow.Position = pos
+        loadTitleGlow.Rotation = rot
+    end
+end)
+
+local loadBlinking = true
+task.spawn(function()
+    while loadBlinking and loadStatusDot.Parent do
+        TweenService:Create(loadStatusDot, TweenInfo.new(0.55), {BackgroundTransparency = 0.7}):Play()
+        task.wait(0.55)
+        TweenService:Create(loadStatusDot, TweenInfo.new(0.55), {BackgroundTransparency = 0}):Play()
+        task.wait(0.55)
+    end
+end)
+
+TweenService:Create(loadBarFill, TweenInfo.new(CFG.LOAD_TIME, Enum.EasingStyle.Linear), {
+    Size = UDim2.new(1, 0, 1, 0)
+}):Play()
+
+local loadShining = true
+task.spawn(function()
+    while loadShining and loadBarFill.Parent do
+        loadBarShine.Position = UDim2.new(0, 0, 0, 0)
+        TweenService:Create(loadBarShine, TweenInfo.new(1.4, Enum.EasingStyle.Sine), {
+            Position = UDim2.new(1, 0, 0, 0)
+        }):Play()
+        task.wait(1.4)
+    end
+end)
+
+task.spawn(function()
+    local messages = {
+        "正在启动系统…",
+        "正在加载资源…",
+        "正在构建界面…",
+        "正在完成设置…",
+        "准备就绪！"
+    }
+    for i = 0, 100 do
+        loadPctText.Text = i .. "%"
+        local idx = math.floor((i / 100) * (#messages - 1)) + 1
+        loadStatusText.Text = messages[math.clamp(idx, 1, #messages)]
+        task.wait(CFG.LOAD_TIME / 100)
+    end
+end)
+
+task.wait(CFG.LOAD_TIME + 0.35)
+
+loadFloating = false
+loadShining  = false
+loadBlinking = false
+
+local DROP_DIST = (Camera and Camera.ViewportSize.Y or 900) * 1.7
+
+local function loadDropAway(obj, delay, spin)
+    task.delay(delay, function()
+        if not obj or not obj.Parent then return end
+        local goal = UDim2.new(
+            obj.Position.X.Scale, obj.Position.X.Offset,
+            obj.Position.Y.Scale, obj.Position.Y.Offset + DROP_DIST
+        )
+        local info = TweenInfo.new(0.9, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+        local props = { Position = goal, Rotation = (obj.Rotation or 0) + spin }
+
+        if obj:IsA("TextLabel") or obj:IsA("TextButton") then
+            props.TextTransparency = 1
+        elseif obj:IsA("Frame") or obj:IsA("ImageLabel") then
+            props.BackgroundTransparency = 1
+        end
+        TweenService:Create(obj, info, props):Play()
+    end)
+end
+
+loadDropAway(loadMainTitle,  0,    200)
+loadDropAway(loadTitleGlow,  0,    200)
+loadDropAway(loadLineTop,    0.05, -55)
+loadDropAway(loadLineBottom, 0.10,  55)
+loadDropAway(loadSubtitle,   0.14, -30)
+loadDropAway(loadBarTrack,   0.22,  40)
+loadDropAway(loadPctText,    0.27, -40)
+loadDropAway(loadStatusPill, 0.32,  28)
+
+task.delay(0.22, function()
+    TweenService:Create(loadBarFill, TweenInfo.new(0.8), {BackgroundTransparency = 1}):Play()
+    TweenService:Create(loadBarShine, TweenInfo.new(0.8), {BackgroundTransparency = 1}):Play()
+end)
+
+task.delay(1.1, function()
+    TweenService:Create(loadWelcomeText, TweenInfo.new(0.9), {TextTransparency = 0}):Play()
+end)
+
+task.wait(1.1 + 1.7)
+
+TweenService:Create(loadWelcomeText, TweenInfo.new(1, Enum.EasingStyle.Quad), {TextTransparency = 1}):Play()
+TweenService:Create(loadBg, TweenInfo.new(1.2, Enum.EasingStyle.Quad), {BackgroundTransparency = 1}):Play()
+
+for i, star in ipairs(loadStars) do
+    task.delay(i * 0.008, function()
+        if star.Parent then
+            TweenService:Create(star, TweenInfo.new(0.7), {BackgroundTransparency = 1}):Play()
+        end
+    end)
+end
+
+task.wait(1.35)
+loadGui:Destroy()
+
+-- =====================================================================
+--  ██  PART 2 — 主面板
+-- =====================================================================
+
 local State = {
     AutoSkill  = false,
     SkillZ     = false,
@@ -102,9 +534,7 @@ local State = {
     NpcESP     = false,
 }
 
--- =====================================================================
---  🎯 NPC 智能过滤 + 归一化去重
--- =====================================================================
+-- 🎯 NPC 过滤 + 归一化去重
 local function lowerText(s)
     if type(s) ~= "string" then return "" end
     return string.lower(s)
@@ -121,40 +551,27 @@ local function containsKeyword(text, keywords)
     return false
 end
 
--- 🧬 归一化 NPC 名字：把 "Chu Xin (1)" / "chu_xin" / "ChuXin 2" 都变成同一个 key
 local function normalizeNpcName(name)
     if type(name) ~= "string" then return "" end
-
     local n = string.lower(name)
-
-    -- 1) 优先查自定义别名表
     if CFG.NPC_NAME_ALIASES and CFG.NPC_NAME_ALIASES[n] then
         return CFG.NPC_NAME_ALIASES[n]
     end
-
-    -- 2) 激进归一化：去掉末尾括号数字、数字、空格、下划线、连字符、点、冒号
     if CFG.AggressiveDedupe then
-        -- 去掉末尾的括号内容，如 "chu xin (2)"
         n = n:gsub("%s*%b()%s*$", "")
-        -- 去掉末尾的 "_1"、" 1"、"-1"
         n = n:gsub("[%s_%-]%d+$", "")
-        -- 去掉所有空格、下划线、连字符、点、冒号
         n = n:gsub("[%s_%-%.%:]+", "")
-        -- 再去掉可能残留的数字（比如 "chuxin2" → "chuxin"）
         n = n:gsub("%d+$", "")
-        -- 再查一次别名表
         if CFG.NPC_NAME_ALIASES and CFG.NPC_NAME_ALIASES[n] then
             return CFG.NPC_NAME_ALIASES[n]
         end
     end
-
     return n
 end
 
 local function isQuestOrSpawnNpc(model)
     if not model or not model.Parent then return false end
 
-    -- 1) CollectionService 标签
     local ok, tags = pcall(function() return CollectionService:GetTags(model) end)
     if ok and tags then
         for _, tag in ipairs(tags) do
@@ -167,20 +584,13 @@ local function isQuestOrSpawnNpc(model)
         end
     end
 
-    -- 2) 模型名字关键词
-    if containsKeyword(model.Name, CFG.NPC_KEYWORDS) then
-        return true
-    end
+    if containsKeyword(model.Name, CFG.NPC_KEYWORDS) then return true end
 
-    -- 3) 属性检测
     for _, attr in ipairs(CFG.NPC_ATTRS) do
         local ok2, val = pcall(function() return model:GetAttribute(attr) end)
-        if ok2 and val ~= nil then
-            return true
-        end
+        if ok2 and val ~= nil then return true end
     end
 
-    -- 4) 子对象检测
     for _, child in ipairs(model:GetDescendants()) do
         if child:IsA("ProximityPrompt")
         or child:IsA("ClickDetector")
@@ -188,10 +598,7 @@ local function isQuestOrSpawnNpc(model)
         or child:IsA("DialogChoice") then
             return true
         end
-
-        if containsKeyword(child.Name, CFG.NPC_KEYWORDS) then
-            return true
-        end
+        if containsKeyword(child.Name, CFG.NPC_KEYWORDS) then return true end
 
         local ok3, tags2 = pcall(function() return CollectionService:GetTags(child) end)
         if ok3 and tags2 then
@@ -207,9 +614,7 @@ local function isQuestOrSpawnNpc(model)
 
         for _, attr in ipairs(CFG.NPC_ATTRS) do
             local ok4, val = pcall(function() return child:GetAttribute(attr) end)
-            if ok4 and val ~= nil then
-                return true
-            end
+            if ok4 and val ~= nil then return true end
         end
     end
 
@@ -231,7 +636,6 @@ local function isEligibleNpc(model)
     return true
 end
 
--- 🎯 归一化去重：同名/相似名 NPC 只保留最近的一个
 local function dedupeNpcsByName(npcList)
     if not CFG.DedupeNpcs then return npcList end
 
@@ -272,7 +676,6 @@ if not hubGui.Parent then hubGui.Parent = LP:WaitForChild("PlayerGui") end
 
 local espGui
 
--- 🔊 音效
 local function newSound(id, vol)
     local s = Instance.new("Sound")
     s.SoundId = "rbxassetid://" .. id
@@ -287,16 +690,19 @@ local sLock   = newSound("131661992591924", 0.6)
 local sSell   = newSound("90531793028786",  0.6)
 local sTp     = newSound("124934430745275", 0.6)
 local sDelete = newSound("154157386",       0.9)
+local sWin    = newSound("9125402735",      0.7)
+local sLose   = newSound("9125403864",      0.7)
 
--- 面板尺寸
-local PANEL_W, PANEL_H = 420, 300
-local PANEL_POS  = UDim2.new(0.5, -PANEL_W / 2, 0.5, -PANEL_H / 2)
+local PANEL_W, PANEL_H = 420, 310
+-- 使用 AnchorPoint(0.5, 0.5) + 位置(0.5, 0.5) 让面板无论缩放如何都保持居中
+local PANEL_POS  = UDim2.new(0.5, 0, 0.5, 0)
 local MIN_SIZE   = UDim2.new(0, PANEL_W, 0, 42)
 local FULL_SIZE  = UDim2.new(0, PANEL_W, 0, PANEL_H)
 
 local panel = Instance.new("Frame")
 panel.Size             = FULL_SIZE
-panel.Position         = UDim2.new(0.5, -PANEL_W / 2, -0.6, 0)
+panel.AnchorPoint      = Vector2.new(0.5, 0.5)
+panel.Position         = UDim2.new(0.5, 0, -0.6, 0)
 panel.BackgroundColor3 = CurrentTheme.bg
 panel.BorderSizePixel  = 0
 panel.Parent           = hubGui
@@ -307,7 +713,11 @@ panelStroke.Color        = CurrentTheme.accent
 panelStroke.Thickness    = 1.5
 panelStroke.Transparency = 0.25
 
--- 标题栏
+-- 🖥️ UI 缩放
+local panelScale = Instance.new("UIScale")
+panelScale.Scale  = CFG.UI_SCALE
+panelScale.Parent = panel
+
 local titleBar = Instance.new("Frame")
 titleBar.Size                   = UDim2.new(1, 0, 0, 42)
 titleBar.BackgroundTransparency = 1
@@ -348,7 +758,6 @@ closeBtn.AutoButtonColor  = false
 closeBtn.Parent           = titleBar
 Instance.new("UICorner", closeBtn).CornerRadius = UDim.new(0, 6)
 
--- 🖱️ 拖拽
 do
     local dragging, dragStart, startPos, dragInput
     titleBar.InputBegan:Connect(function(input)
@@ -381,7 +790,6 @@ do
     end)
 end
 
--- 侧边栏 / 页面
 local sidebar = Instance.new("Frame")
 sidebar.Size                   = UDim2.new(0, 120, 1, -46)
 sidebar.Position               = UDim2.new(0, 0, 0, 44)
@@ -411,11 +819,13 @@ local function newTab(text, index)
     return btn
 end
 
-local tabSkill = newTab("⚡  技能", 0)
-local tabFish  = newTab("🎣  钓鱼", 1)
-local tabEsp   = newTab("🎯  ESP",  2)
-local tabTp    = newTab("🌀  传送", 3)
-local tabTheme = newTab("🎨  主题", 4)
+local tabSkill    = newTab("⚡  技能", 0)
+local tabFish     = newTab("🎣  钓鱼", 1)
+local tabEsp      = newTab("🎯  ESP",  2)
+local tabTp       = newTab("🌀  传送", 3)
+local tabTheme    = newTab("🎨  主题", 4)
+local tabFun      = newTab("🎮  消遣", 5)
+local tabSettings = newTab("⚙️  设置", 6)
 
 local function newPage()
     local page = Instance.new("ScrollingFrame")
@@ -431,11 +841,13 @@ local function newPage()
     return page
 end
 
-local pageSkill = newPage()
-local pageFish  = newPage()
-local pageEsp   = newPage()
-local pageTp    = newPage()
-local pageTheme = newPage()
+local pageSkill    = newPage()
+local pageFish     = newPage()
+local pageEsp      = newPage()
+local pageTp       = newPage()
+local pageTheme    = newPage()
+local pageFun      = newPage()
+local pageSettings = newPage()
 
 local activePage   = nil
 local activeTabBtn = nil
@@ -464,7 +876,8 @@ local function selectTab(btn, page)
     activePage   = page
 end
 
-local themedToggles = {}
+local themedToggles     = {}
+local themedAccentTexts = {}
 
 local function newToggle(parent, y, label, key, sfx)
     local btn = Instance.new("TextButton")
@@ -631,7 +1044,7 @@ espInfo.TextSize               = 10
 espInfo.TextWrapped            = true
 espInfo.TextXAlignment         = Enum.TextXAlignment.Left
 espInfo.TextYAlignment         = Enum.TextYAlignment.Top
-espInfo.Text = "  玩家 ESP：绿色标签\n  NPC ESP：红色标签\n  仅任务/刷新 NPC\n  相似名（如 Chu Xin / chuxin）自动去重\n  超过 500m 自动隐藏"
+espInfo.Text = "  玩家 ESP：绿色标签\n  NPC ESP：红色标签\n  仅任务/刷新 NPC\n  相似名自动去重\n  超过 500m 自动隐藏"
 espInfo.Parent                 = pageEsp
 Instance.new("UICorner", espInfo).CornerRadius = UDim.new(0, 6)
 
@@ -678,11 +1091,17 @@ local function applyTheme(theme)
         end
     end
 
+    for _, obj in ipairs(themedAccentTexts) do
+        if obj and obj.Parent then
+            TweenService:Create(obj, TweenInfo.new(0.25), { TextColor3 = theme.accent }):Play()
+        end
+    end
+
     if intervalStroke then
         TweenService:Create(intervalStroke, TweenInfo.new(0.25), { Color = theme.accent }):Play()
     end
 
-    for _, page in ipairs({pageSkill, pageFish, pageEsp, pageTp, pageTheme}) do
+    for _, page in ipairs({pageSkill, pageFish, pageEsp, pageTp, pageTheme, pageFun, pageSettings}) do
         page.ScrollBarImageColor3 = theme.accent
     end
 end
@@ -693,6 +1112,519 @@ for i, btn in ipairs(themeBtns) do
         applyTheme(THEMES[i])
     end)
 end
+
+-- ─────────────────────────────────────────────────────────────────────
+--  🎮 消遣页（小游戏）
+-- ─────────────────────────────────────────────────────────────────────
+local FunState = {
+    Guess = { target = math.random(1, 100), tries = 0, done = false },
+    RPS   = { playerScore = 0, cpuScore = 0 },
+    React = { mode = "idle", token = 0, readyAt = 0 },
+}
+
+local function makeFunTitle(parent, y, text)
+    local lbl = Instance.new("TextLabel")
+    lbl.Size                   = UDim2.new(1, -16, 0, 20)
+    lbl.Position               = UDim2.new(0, 8, 0, y)
+    lbl.BackgroundTransparency = 1
+    lbl.Text                   = text
+    lbl.TextColor3             = CurrentTheme.accent
+    lbl.Font                   = Enum.Font.GothamBold
+    lbl.TextSize               = 12
+    lbl.TextXAlignment         = Enum.TextXAlignment.Left
+    lbl.Parent                 = parent
+    table.insert(themedAccentTexts, lbl)
+    return lbl
+end
+
+local function makeFunCard(y, height)
+    local card = Instance.new("Frame")
+    card.Size             = UDim2.new(0.95, 0, 0, height)
+    card.Position         = UDim2.new(0.025, 0, 0, y)
+    card.BackgroundColor3 = Color3.fromRGB(20, 26, 38)
+    card.BorderSizePixel  = 0
+    card.Parent           = pageFun
+    Instance.new("UICorner", card).CornerRadius = UDim.new(0, 6)
+    return card
+end
+
+-- ══════════ 猜数字 ══════════
+do
+    local card = makeFunCard(5, 112)
+    makeFunTitle(card, 4, "🎲  猜数字（1 - 100）")
+
+    local box = Instance.new("TextBox")
+    box.Size             = UDim2.new(0.5, 0, 0, 28)
+    box.Position         = UDim2.new(0, 8, 0, 30)
+    box.BackgroundColor3 = Color3.fromRGB(26, 32, 46)
+    box.TextColor3       = Color3.fromRGB(230, 255, 255)
+    box.PlaceholderColor3 = Color3.fromRGB(120, 140, 160)
+    box.Font             = Enum.Font.GothamBold
+    box.TextSize         = 12
+    box.Text             = ""
+    box.PlaceholderText  = "输入数字"
+    box.ClearTextOnFocus = false
+    box.Parent           = card
+    Instance.new("UICorner", box).CornerRadius = UDim.new(0, 6)
+
+    local goBtn = Instance.new("TextButton")
+    goBtn.Size             = UDim2.new(0.42, 0, 0, 28)
+    goBtn.Position         = UDim2.new(0.55, 0, 0, 30)
+    goBtn.BackgroundColor3 = Color3.fromRGB(0, 130, 150)
+    goBtn.TextColor3       = Color3.new(1, 1, 1)
+    goBtn.Font             = Enum.Font.GothamBold
+    goBtn.TextSize         = 11
+    goBtn.Text             = "猜！"
+    goBtn.AutoButtonColor  = false
+    goBtn.Parent           = card
+    Instance.new("UICorner", goBtn).CornerRadius = UDim.new(0, 6)
+
+    local result = Instance.new("TextLabel")
+    result.Size                   = UDim2.new(1, -16, 0, 18)
+    result.Position               = UDim2.new(0, 8, 0, 62)
+    result.BackgroundTransparency = 1
+    result.Text                   = "尝试次数：0"
+    result.TextColor3             = Color3.fromRGB(180, 200, 220)
+    result.Font                   = Enum.Font.Gotham
+    result.TextSize               = 11
+    result.TextXAlignment         = Enum.TextXAlignment.Left
+    result.Parent                 = card
+
+    local restart = Instance.new("TextButton")
+    restart.Size             = UDim2.new(0.95, 0, 0, 22)
+    restart.Position         = UDim2.new(0.025, 0, 0, 84)
+    restart.BackgroundColor3 = Color3.fromRGB(55, 30, 60)
+    restart.TextColor3       = Color3.fromRGB(230, 200, 240)
+    restart.Font             = Enum.Font.GothamBold
+    restart.TextSize         = 10
+    restart.Text             = "🔄  重新开始"
+    restart.AutoButtonColor  = false
+    restart.Parent           = card
+    Instance.new("UICorner", restart).CornerRadius = UDim.new(0, 5)
+
+    local function reset()
+        FunState.Guess.target = math.random(1, 100)
+        FunState.Guess.tries  = 0
+        FunState.Guess.done   = false
+        result.Text           = "尝试次数：0"
+        result.TextColor3     = Color3.fromRGB(180, 200, 220)
+        box.Text              = ""
+    end
+
+    local function submit()
+        if FunState.Guess.done then return end
+        local n = tonumber(box.Text)
+        if not n or n < 1 or n > 100 then
+            result.Text = "请输入 1 - 100 之间的整数"
+            result.TextColor3 = Color3.fromRGB(255, 150, 100)
+            return
+        end
+        FunState.Guess.tries = FunState.Guess.tries + 1
+        local diff = n - FunState.Guess.target
+        if diff == 0 then
+            FunState.Guess.done = true
+            result.Text = "🎉 猜对了！用了 " .. FunState.Guess.tries .. " 次"
+            result.TextColor3 = Color3.fromRGB(0, 255, 130)
+            pcall(function() sWin:Play() end)
+        elseif math.abs(diff) <= 5 then
+            result.Text = (diff > 0 and "🔥 很接近了，往小猜" or "🔥 很接近了，往大猜")
+                .. "（第 " .. FunState.Guess.tries .. " 次）"
+            result.TextColor3 = Color3.fromRGB(255, 200, 80)
+        else
+            result.Text = (diff > 0 and "⬇ 太大了" or "⬆ 太小了")
+                .. "（第 " .. FunState.Guess.tries .. " 次）"
+            result.TextColor3 = Color3.fromRGB(200, 200, 200)
+        end
+        box.Text = ""
+    end
+
+    goBtn.MouseButton1Click:Connect(function()
+        pcall(function() sClick:Play() end)
+        submit()
+    end)
+    box.FocusLost:Connect(function(enter)
+        if enter then submit() end
+    end)
+    restart.MouseButton1Click:Connect(function()
+        pcall(function() sClick:Play() end)
+        reset()
+    end)
+end
+
+-- ══════════ 石头剪刀布 ══════════
+do
+    local card = makeFunCard(122, 112)
+    makeFunTitle(card, 4, "✂️  石头剪刀布")
+
+    local choices = {
+        { label = "石头", emoji = "✊" },
+        { label = "剪刀", emoji = "✌️" },
+        { label = "布",   emoji = "✋" },
+    }
+    local btns = {}
+    for i, ch in ipairs(choices) do
+        local btn = Instance.new("TextButton")
+        btn.Size             = UDim2.new(0.3, 0, 0, 26)
+        btn.Position         = UDim2.new(0.025 + (i - 1) * 0.325, 0, 0, 30)
+        btn.BackgroundColor3 = Color3.fromRGB(35, 45, 60)
+        btn.TextColor3       = Color3.new(1, 1, 1)
+        btn.Font             = Enum.Font.GothamBold
+        btn.TextSize         = 11
+        btn.Text             = ch.emoji .. " " .. ch.label
+        btn.AutoButtonColor  = false
+        btn.Parent           = card
+        Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 5)
+        table.insert(btns, btn)
+    end
+
+    local result = Instance.new("TextLabel")
+    result.Size                   = UDim2.new(1, -16, 0, 18)
+    result.Position               = UDim2.new(0, 8, 0, 62)
+    result.BackgroundTransparency = 1
+    result.Text                   = "点击出拳，与电脑对战"
+    result.TextColor3             = Color3.fromRGB(180, 200, 220)
+    result.Font                   = Enum.Font.Gotham
+    result.TextSize               = 11
+    result.TextXAlignment         = Enum.TextXAlignment.Left
+    result.Parent                 = card
+
+    local score = Instance.new("TextLabel")
+    score.Size                   = UDim2.new(1, -16, 0, 18)
+    score.Position               = UDim2.new(0, 8, 0, 84)
+    score.BackgroundTransparency = 1
+    score.Text                   = "你 0 : 0 电脑"
+    score.TextColor3             = CurrentTheme.accent
+    score.Font                   = Enum.Font.GothamBold
+    score.TextSize               = 11
+    score.TextXAlignment         = Enum.TextXAlignment.Left
+    score.Parent                 = card
+    table.insert(themedAccentTexts, score)
+
+    local function play(playerIdx)
+        local cpuIdx = math.random(1, 3)
+        local pName = choices[playerIdx].emoji .. choices[playerIdx].label
+        local cName = choices[cpuIdx].emoji .. choices[cpuIdx].label
+        if playerIdx == cpuIdx then
+            result.Text = "平局！双方都出 " .. pName
+            result.TextColor3 = Color3.fromRGB(200, 200, 200)
+        else
+            local win =
+                (playerIdx == 1 and cpuIdx == 2) or
+                (playerIdx == 2 and cpuIdx == 3) or
+                (playerIdx == 3 and cpuIdx == 1)
+            if win then
+                FunState.RPS.playerScore = FunState.RPS.playerScore + 1
+                result.Text = "🎉 你赢了！" .. pName .. " 击败 " .. cName
+                result.TextColor3 = Color3.fromRGB(0, 255, 130)
+                pcall(function() sWin:Play() end)
+            else
+                FunState.RPS.cpuScore = FunState.RPS.cpuScore + 1
+                result.Text = "😵 你输了！" .. cName .. " 击败 " .. pName
+                result.TextColor3 = Color3.fromRGB(255, 100, 100)
+                pcall(function() sLose:Play() end)
+            end
+        end
+        score.Text = "你 " .. FunState.RPS.playerScore .. " : " .. FunState.RPS.cpuScore .. " 电脑"
+    end
+
+    for i, btn in ipairs(btns) do
+        btn.MouseButton1Click:Connect(function()
+            pcall(function() sClick:Play() end)
+            play(i)
+        end)
+    end
+end
+
+-- ══════════ 反应测试 ══════════
+do
+    local card = makeFunCard(239, 112)
+    makeFunTitle(card, 4, "⚡  反应测试")
+
+    local area = Instance.new("TextButton")
+    area.Size             = UDim2.new(0.95, 0, 0, 68)
+    area.Position         = UDim2.new(0.025, 0, 0, 30)
+    area.BackgroundColor3 = Color3.fromRGB(60, 60, 80)
+    area.TextColor3       = Color3.new(1, 1, 1)
+    area.Font             = Enum.Font.GothamBold
+    area.TextSize         = 14
+    area.Text             = "点击开始测试"
+    area.AutoButtonColor  = false
+    area.Parent           = card
+    Instance.new("UICorner", area).CornerRadius = UDim.new(0, 6)
+
+    local function setIdle()
+        FunState.React.mode  = "idle"
+        FunState.React.token = FunState.React.token + 1
+        area.BackgroundColor3 = Color3.fromRGB(60, 60, 80)
+        area.Text             = "点击开始测试"
+    end
+
+    local function startWait()
+        FunState.React.mode  = "waiting"
+        FunState.React.token = FunState.React.token + 1
+        local myToken = FunState.React.token
+        area.BackgroundColor3 = Color3.fromRGB(160, 40, 60)
+        area.Text             = "等待变绿…"
+        task.spawn(function()
+            task.wait(1 + math.random() * 3)
+            if FunState.React.token ~= myToken then return end
+            if FunState.React.mode ~= "waiting" then return end
+            FunState.React.mode    = "ready"
+            FunState.React.readyAt = tick()
+            area.BackgroundColor3 = Color3.fromRGB(0, 200, 100)
+            area.Text             = "点！"
+        end)
+    end
+
+    area.MouseButton1Click:Connect(function()
+        pcall(function() sClick:Play() end)
+        local mode = FunState.React.mode
+        if mode == "idle" then
+            startWait()
+        elseif mode == "waiting" then
+            FunState.React.token = FunState.React.token + 1
+            FunState.React.mode  = "done"
+            area.BackgroundColor3 = Color3.fromRGB(180, 60, 60)
+            area.Text             = "❌ 太早了！点击重来"
+            pcall(function() sLose:Play() end)
+            task.delay(1.2, function()
+                if FunState.React.mode == "done" then setIdle() end
+            end)
+        elseif mode == "ready" then
+            local ms = (tick() - FunState.React.readyAt) * 1000
+            FunState.React.mode = "done"
+            local grade
+            if ms < 200 then grade = "⚡ 神级反应"
+            elseif ms < 280 then grade = "✨ 非常快"
+            elseif ms < 380 then grade = "👍 还不错"
+            else grade = "😅 再接再厉" end
+            area.BackgroundColor3 = Color3.fromRGB(30, 80, 160)
+            area.Text             = string.format("%.0f ms  %s", ms, grade)
+            pcall(function() sWin:Play() end)
+            task.delay(1.6, function()
+                if FunState.React.mode == "done" then setIdle() end
+            end)
+        end
+    end)
+end
+
+-- ─────────────────────────────────────────────────────────────────────
+--  ⚙️ 设置页
+-- ─────────────────────────────────────────────────────────────────────
+
+-- UI 缩放应用函数
+local scaleLabel  -- 前向声明，供 applyUiScale 引用
+local scaleBox
+local scaleApplyBtn
+
+local function applyUiScale(scale, silent)
+    scale = math.clamp(scale, CFG.UI_SCALE_MIN, CFG.UI_SCALE_MAX)
+    CFG.UI_SCALE = scale
+    TweenService:Create(panelScale, TweenInfo.new(0.2, Enum.EasingStyle.Quad), { Scale = scale }):Play()
+    if scaleLabel then
+        scaleLabel.Text = string.format("当前缩放：%d%%", math.floor(scale * 100 + 0.5))
+    end
+    if scaleBox then
+        scaleBox.Text = string.format("%.2f", scale)
+    end
+    if not silent and scaleApplyBtn then
+        scaleApplyBtn.Text = "已应用"
+        scaleApplyBtn.BackgroundColor3 = Color3.fromRGB(0, 210, 140)
+        task.delay(0.9, function()
+            scaleApplyBtn.Text = "应用"
+            scaleApplyBtn.BackgroundColor3 = Color3.fromRGB(0, 150, 100)
+        end)
+    end
+end
+
+-- 页标题
+local settingsTitle1 = Instance.new("TextLabel")
+settingsTitle1.Size                   = UDim2.new(0.95, 0, 0, 22)
+settingsTitle1.Position               = UDim2.new(0.025, 0, 0, 5)
+settingsTitle1.BackgroundColor3       = Color3.fromRGB(30, 40, 60)
+settingsTitle1.TextColor3             = CurrentTheme.accent
+settingsTitle1.Font                   = Enum.Font.GothamBold
+settingsTitle1.TextSize               = 12
+settingsTitle1.TextXAlignment         = Enum.TextXAlignment.Left
+settingsTitle1.Text                   = "  🖥️  UI 大小"
+settingsTitle1.Parent                 = pageSettings
+Instance.new("UICorner", settingsTitle1).CornerRadius = UDim.new(0, 6)
+table.insert(themedAccentTexts, settingsTitle1)
+
+-- 当前值
+scaleLabel = Instance.new("TextLabel")
+scaleLabel.Size                   = UDim2.new(0.95, 0, 0, 26)
+scaleLabel.Position               = UDim2.new(0.025, 0, 0, 33)
+scaleLabel.BackgroundTransparency = 1
+scaleLabel.Text                   = string.format("当前缩放：%d%%", math.floor(CFG.UI_SCALE * 100 + 0.5))
+scaleLabel.TextColor3             = Color3.fromRGB(200, 220, 240)
+scaleLabel.Font                   = Enum.Font.GothamBold
+scaleLabel.TextSize               = 12
+scaleLabel.TextXAlignment         = Enum.TextXAlignment.Left
+scaleLabel.Parent                 = pageSettings
+
+-- 预设按钮行
+local presets = {
+    { name = "小 75%",  value = 0.75 },
+    { name = "中 100%", value = 1.00 },
+    { name = "大 125%", value = 1.25 },
+    { name = "超大 150%", value = 1.50 },
+}
+for i, p in ipairs(presets) do
+    local btn = Instance.new("TextButton")
+    btn.Size             = UDim2.new(0.22, 0, 0, 30)
+    btn.Position         = UDim2.new(0.025 + (i - 1) * 0.245, 0, 0, 66)
+    btn.BackgroundColor3 = Color3.fromRGB(30, 40, 60)
+    btn.TextColor3       = Color3.new(1, 1, 1)
+    btn.Font             = Enum.Font.GothamBold
+    btn.TextSize         = 10
+    btn.Text             = p.name
+    btn.AutoButtonColor  = false
+    btn.Parent           = pageSettings
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
+    local st = Instance.new("UIStroke", btn)
+    st.Color        = Color3.fromRGB(60, 70, 90)
+    st.Thickness    = 1
+    st.Transparency = 0.5
+
+    btn.MouseButton1Click:Connect(function()
+        pcall(function() sClick:Play() end)
+        applyUiScale(p.value)
+    end)
+end
+
+-- 微调按钮行
+local minusBtn = Instance.new("TextButton")
+minusBtn.Size             = UDim2.new(0.46, 0, 0, 30)
+minusBtn.Position         = UDim2.new(0.025, 0, 0, 102)
+minusBtn.BackgroundColor3 = Color3.fromRGB(35, 45, 60)
+minusBtn.TextColor3       = Color3.new(1, 1, 1)
+minusBtn.Font             = Enum.Font.GothamBold
+minusBtn.TextSize         = 11
+minusBtn.Text             = "➖  缩小 10%"
+minusBtn.AutoButtonColor  = false
+minusBtn.Parent           = pageSettings
+Instance.new("UICorner", minusBtn).CornerRadius = UDim.new(0, 6)
+
+local plusBtn = Instance.new("TextButton")
+plusBtn.Size             = UDim2.new(0.46, 0, 0, 30)
+plusBtn.Position         = UDim2.new(0.515, 0, 0, 102)
+plusBtn.BackgroundColor3 = Color3.fromRGB(35, 45, 60)
+plusBtn.TextColor3       = Color3.new(1, 1, 1)
+plusBtn.Font             = Enum.Font.GothamBold
+plusBtn.TextSize         = 11
+plusBtn.Text             = "➕  放大 10%"
+plusBtn.AutoButtonColor  = false
+plusBtn.Parent           = pageSettings
+Instance.new("UICorner", plusBtn).CornerRadius = UDim.new(0, 6)
+
+minusBtn.MouseButton1Click:Connect(function()
+    pcall(function() sClick:Play() end)
+    applyUiScale(CFG.UI_SCALE - 0.10)
+end)
+
+plusBtn.MouseButton1Click:Connect(function()
+    pcall(function() sClick:Play() end)
+    applyUiScale(CFG.UI_SCALE + 0.10)
+end)
+
+-- 自定义输入框 + 应用
+local customLabel = Instance.new("TextLabel")
+customLabel.Size                   = UDim2.new(0.95, 0, 0, 18)
+customLabel.Position               = UDim2.new(0.025, 0, 0, 138)
+customLabel.BackgroundTransparency = 1
+customLabel.Text                   = "自定义缩放（" .. CFG.UI_SCALE_MIN .. " - " .. CFG.UI_SCALE_MAX .. "）"
+customLabel.TextColor3             = Color3.fromRGB(180, 200, 220)
+customLabel.Font                   = Enum.Font.Gotham
+customLabel.TextSize               = 10
+customLabel.TextXAlignment         = Enum.TextXAlignment.Left
+customLabel.Parent                 = pageSettings
+
+scaleBox = Instance.new("TextBox")
+scaleBox.Size             = UDim2.new(0.5, 0, 0, 30)
+scaleBox.Position         = UDim2.new(0.025, 0, 0, 158)
+scaleBox.BackgroundColor3 = Color3.fromRGB(26, 32, 46)
+scaleBox.TextColor3       = Color3.fromRGB(230, 255, 255)
+scaleBox.Font             = Enum.Font.GothamBold
+scaleBox.TextSize         = 12
+scaleBox.Text             = string.format("%.2f", CFG.UI_SCALE)
+scaleBox.PlaceholderText  = "如 1.25"
+scaleBox.ClearTextOnFocus = false
+scaleBox.Parent           = pageSettings
+Instance.new("UICorner", scaleBox).CornerRadius = UDim.new(0, 6)
+local scaleBoxStroke = Instance.new("UIStroke", scaleBox)
+scaleBoxStroke.Color        = CurrentTheme.accent
+scaleBoxStroke.Thickness    = 1
+scaleBoxStroke.Transparency = 0.5
+
+scaleApplyBtn = Instance.new("TextButton")
+scaleApplyBtn.Size             = UDim2.new(0.42, 0, 0, 30)
+scaleApplyBtn.Position         = UDim2.new(0.545, 0, 0, 158)
+scaleApplyBtn.BackgroundColor3 = Color3.fromRGB(0, 150, 100)
+scaleApplyBtn.TextColor3       = Color3.new(1, 1, 1)
+scaleApplyBtn.Font             = Enum.Font.GothamBold
+scaleApplyBtn.TextSize         = 11
+scaleApplyBtn.Text             = "应用"
+scaleApplyBtn.AutoButtonColor  = false
+scaleApplyBtn.Parent           = pageSettings
+Instance.new("UICorner", scaleApplyBtn).CornerRadius = UDim.new(0, 6)
+
+local function applyCustomScale()
+    local n = tonumber(scaleBox.Text)
+    if n and n >= CFG.UI_SCALE_MIN and n <= CFG.UI_SCALE_MAX then
+        applyUiScale(n)
+    else
+        scaleBox.Text = string.format("%.2f", CFG.UI_SCALE)
+        scaleApplyBtn.Text = "无效值"
+        scaleApplyBtn.BackgroundColor3 = Color3.fromRGB(180, 40, 60)
+        task.delay(0.9, function()
+            scaleApplyBtn.Text = "应用"
+            scaleApplyBtn.BackgroundColor3 = Color3.fromRGB(0, 150, 100)
+        end)
+    end
+end
+
+scaleApplyBtn.MouseButton1Click:Connect(function()
+    pcall(function() sClick:Play() end)
+    applyCustomScale()
+end)
+
+scaleBox.FocusLost:Connect(function()
+    applyCustomScale()
+end)
+
+-- 重置按钮
+local resetBtn = Instance.new("TextButton")
+resetBtn.Size             = UDim2.new(0.95, 0, 0, 28)
+resetBtn.Position         = UDim2.new(0.025, 0, 0, 194)
+resetBtn.BackgroundColor3 = Color3.fromRGB(80, 40, 40)
+resetBtn.TextColor3       = Color3.fromRGB(255, 220, 220)
+resetBtn.Font             = Enum.Font.GothamBold
+resetBtn.TextSize         = 11
+resetBtn.Text             = "🔄  恢复默认缩放（100%）"
+resetBtn.AutoButtonColor  = false
+resetBtn.Parent           = pageSettings
+Instance.new("UICorner", resetBtn).CornerRadius = UDim.new(0, 6)
+
+resetBtn.MouseButton1Click:Connect(function()
+    pcall(function() sClick:Play() end)
+    applyUiScale(1.0)
+end)
+
+-- 额外小提示
+local tipLabel = Instance.new("TextLabel")
+tipLabel.Size                   = UDim2.new(0.95, 0, 0, 50)
+tipLabel.Position               = UDim2.new(0.025, 0, 0, 228)
+tipLabel.BackgroundColor3       = Color3.fromRGB(20, 26, 38)
+tipLabel.TextColor3             = Color3.fromRGB(160, 180, 200)
+tipLabel.Font                   = Enum.Font.Gotham
+tipLabel.TextSize               = 10
+tipLabel.TextWrapped            = true
+tipLabel.TextXAlignment         = Enum.TextXAlignment.Left
+tipLabel.TextYAlignment         = Enum.TextYAlignment.Top
+tipLabel.Text                   = "  提示：调整缩放后，面板会保持居中。\n  拖动标题栏可以重新定位面板。"
+tipLabel.Parent                 = pageSettings
+Instance.new("UICorner", tipLabel).CornerRadius = UDim.new(0, 6)
 
 -- ─────────────────────────────────────────────────────────────────────
 --  传送页
@@ -759,7 +1691,6 @@ local function refreshTeleportList()
     tpPlayerBtns = {}
     tpNpcBtns    = {}
 
-    -- 玩家
     local playerList = {}
     for _, plr in ipairs(Players:GetPlayers()) do
         if plr ~= LP and plr.Character then
@@ -771,7 +1702,6 @@ local function refreshTeleportList()
     end
     table.sort(playerList, function(a, b) return a.name < b.name end)
 
-    -- NPC（智能过滤 + 归一化去重）
     local npcRaw = {}
     for _, obj in ipairs(workspace:GetDescendants()) do
         if obj:IsA("Model") and isEligibleNpc(obj) then
@@ -880,14 +1810,16 @@ local function refreshTeleportList()
     pageTp.CanvasSize = UDim2.new(0, 0, 0, y + 12)
 end
 
-tabSkill.MouseButton1Click:Connect(function() selectTab(tabSkill, pageSkill) end)
-tabFish.MouseButton1Click:Connect(function()  selectTab(tabFish,  pageFish)  end)
-tabEsp.MouseButton1Click:Connect(function()   selectTab(tabEsp,   pageEsp)   end)
+tabSkill.MouseButton1Click:Connect(function()    selectTab(tabSkill,    pageSkill)    end)
+tabFish.MouseButton1Click:Connect(function()     selectTab(tabFish,     pageFish)     end)
+tabEsp.MouseButton1Click:Connect(function()      selectTab(tabEsp,      pageEsp)      end)
 tabTp.MouseButton1Click:Connect(function()
     selectTab(tabTp, pageTp)
     refreshTeleportList()
 end)
-tabTheme.MouseButton1Click:Connect(function() selectTab(tabTheme, pageTheme) end)
+tabTheme.MouseButton1Click:Connect(function()    selectTab(tabTheme,    pageTheme)    end)
+tabFun.MouseButton1Click:Connect(function()      selectTab(tabFun,      pageFun)      end)
+tabSettings.MouseButton1Click:Connect(function() selectTab(tabSettings, pageSettings) end)
 
 selectTab(tabSkill, pageSkill)
 
@@ -905,9 +1837,6 @@ task.spawn(function()
     end
 end)
 
--- ─────────────────────────────────────────────────────────────────────
---  最小化 / 关闭
--- ─────────────────────────────────────────────────────────────────────
 local minimized = false
 minBtn.MouseButton1Click:Connect(function()
     pcall(function() sClick:Play() end)
@@ -1212,4 +2141,4 @@ task.spawn(function()
     end
 end)
 
-print("★ [Sigma Hub] 加载成功（NPC 过滤 + 归一化去重已启用）。")
+print("★ [Sigma Hub] 加载成功（含加载屏 / NPC 过滤 + 去重 / 消遣小游戏 / UI 缩放设置）。")
