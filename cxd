@@ -1,2432 +1,1823 @@
--- =====================================================================
---  ★ Sigma Hub ★
---  功能：加载屏 / 技能 / 钓鱼 / ESP / 传送 / 主题 / 消遣 / 设置 / AI 助手
---  AI 助手支持真实 API 接入（Groq / DeepSeek / OpenAI 等）
--- =====================================================================
+-- ═══════════════════════════════════════════════════════════════════════
+--  ◆  SIGMA HUB  v7.2  ◆  霓虹街机 · 无动画版
+--  已移除：入场滑入 · 渐变流动 · 描边呼吸
+-- ═══════════════════════════════════════════════════════════════════════
 
-local Players             = game:GetService("Players")
-local ReplicatedStorage   = game:GetService("ReplicatedStorage")
-local RunService          = game:GetService("RunService")
-local TweenService        = game:GetService("TweenService")
-local UserInputService    = game:GetService("UserInputService")
-local VirtualInputManager = game:GetService("VirtualInputManager")
-local StarterGui          = game:GetService("StarterGui")
-local CoreGui             = game:GetService("CoreGui")
-local CollectionService   = game:GetService("CollectionService")
-local HttpService         = game:GetService("HttpService")
+local Players     = game:GetService("Players")
+local RS          = game:GetService("ReplicatedStorage")
+local RunService  = game:GetService("RunService")
+local Tween       = game:GetService("TweenService")
+local UIS         = game:GetService("UserInputService")
+local VIM         = game:GetService("VirtualInputManager")
+local CoreGui     = game:GetService("CoreGui")
+local CS          = game:GetService("CollectionService")
+local HS          = game:GetService("HttpService")
 
-local LP     = Players.LocalPlayer
-local Camera = workspace.CurrentCamera
+local LP  = Players.LocalPlayer
+local Cam = workspace.CurrentCamera
 
--- =====================================================================
---  🔑  AI 助手 API 配置（想用真实 AI 请改这三行）
--- =====================================================================
-local AI_CONFIG = {
-    -- ① 【必填】API Key
-    --    Groq:      gsk_xxxxxxxxxxxxxxxx
-    --    DeepSeek:  sk-xxxxxxxxxxxxxxxx
-    --    OpenAI:    sk-proj-xxxxxxxxxxxxxxxx
-    API_KEY = "sk-f8eba1cf8940494eb170ff3fe274a86c",
-
-    -- ② 【必填】API 接口地址
-    --    Groq:      https://api.groq.com/openai/v1/chat/completions
-    --    DeepSeek:  https://api.deepseek.com/v1/chat/completions
-    --    OpenAI:    https://api.openai.com/v1/chat/completions
+-- ─────────────────────────────────────────────────────────────────────
+--  🔑  AI
+-- ─────────────────────────────────────────────────────────────────────
+local AI = {
+    API_KEY = "在这里填入你的新API-Key",
     API_URL = "https://api.deepseek.com/v1/chat/completions",
-
-    -- ③ 【必填】模型名
-    --    Groq:      llama-3.3-70b-versatile
-    --    DeepSeek:  deepseek-chat
-    --    OpenAI:    gpt-4o-mini
-    MODEL = "deepseek-chat",
-
-    -- ④ 【可选】系统提示词（定义 AI 角色）
-    SYSTEM_PROMPT = "你是 Sigma Hub 的内置 AI 助手，名字叫 Sigma。用简洁的中文回答，友好但不过于热情。",
-
-    -- ⑤ 【可选】API 失败时是否回退到本地规则引擎
-    FALLBACK_TO_LOCAL = true,
-
-    -- ⑥ 【可选】保留多少轮对话历史（多轮对话上下文）
+    MODEL   = "deepseek-chat",
+    PROMPT  = "你是 Sigma Hub 助手，用简洁的中文回答。",
+    FALLBACK = true,
     MAX_HISTORY = 12,
 }
 
--- =====================================================================
---  ⚙️  脚本基础配置
--- =====================================================================
-local CFG = {
-    LOAD_TIME  = 3.2,
-    STAR_COUNT = 55,
-    OVERSCAN   = 0.10,
+-- ─────────────────────────────────────────────────────────────────────
+--  ⚙️  配置
+-- ─────────────────────────────────────────────────────────────────────
+local C = {
+    SELL_INTERVAL = 3, SELL_MIN = 0.5, SELL_MAX = 3600,
+    BUY_INTERVAL  = 5, BUY_MIN  = 0.5, BUY_MAX  = 3600,
+    BAIT_NAME     = "Ancestral Bait",
+    BAIT_QTY      = 1,
 
-    SELL_INTERVAL = 3,
-    SELL_MIN      = 0.5,
-    SELL_MAX      = 3600,
-    TP_OFFSET     = 3,
-    TP_REFRESH    = 3,
-
-    UI_SCALE      = 1.0,
-    UI_SCALE_MIN  = 0.5,
-    UI_SCALE_MAX  = 1.8,
-
-    FilterQuestNpcs  = true,
-    DedupeNpcs       = true,
-    AggressiveDedupe = true,
-
-    NPC_NAME_ALIASES = {
-        ["chu xin"] = "chuxin",
-        ["chuxin"]  = "chuxin",
-        ["chu_xin"] = "chuxin",
-        ["chu-xin"] = "chuxin",
-    },
-
-    NPC_KEYWORDS = {
-        "quest", "mission", "task", "dialog", "dialogue",
-        "shop", "merchant", "vendor", "trader",
-        "spawn", "respawn", "timer", "cooldown",
-        "event", "boss", "raid", "daily", "weekly",
-        "story", "npc", "giver",
-    },
-
-    NPC_TAGS = {
-        "QuestNPC", "Quest", "Mission", "MissionNPC",
-        "DialogNPC", "Dialog", "ShopNPC", "Merchant", "Vendor",
-        "SpawnNPC", "TimedNPC", "EventNPC", "BossNPC",
-    },
-
-    NPC_ATTRS = {
-        "Quest", "HasQuest", "IsQuest", "QuestId",
-        "Spawn", "Respawn", "RespawnTime", "SpawnTime",
-        "IsBoss", "IsEvent", "EventName", "MissionId",
-    },
+    TP_OFFSET = 3, TP_REFRESH = 3,
+    UI_SCALE = 1.0, UI_SCALE_MIN = 0.5, UI_SCALE_MAX = 1.8,
+    FilterQuestNpcs = true, DedupeNpcs = true,
+    NPC_KEYWORDS = {"quest","mission","task","dialog","dialogue","shop","merchant","vendor","trader","spawn","respawn","timer","cooldown","event","boss","raid","daily","weekly","story","npc","giver"},
+    NPC_TAGS = {"QuestNPC","Quest","Mission","MissionNPC","DialogNPC","Dialog","ShopNPC","Merchant","Vendor","SpawnNPC","TimedNPC","EventNPC","BossNPC"},
+    NPC_ATTRS = {"Quest","HasQuest","IsQuest","QuestId","Spawn","Respawn","RespawnTime","SpawnTime","IsBoss","IsEvent","EventName","MissionId"},
+    ALIASES = { ["chu xin"]="chuxin",["chuxin"]="chuxin",["chu_xin"]="chuxin",["chu-xin"]="chuxin" },
 }
 
+-- ─────────────────────────────────────────────────────────────────────
+--  🎨  主题
+-- ─────────────────────────────────────────────────────────────────────
 local THEMES = {
-    { name = "深海蓝", bg = Color3.fromRGB(14, 18, 28), accent = Color3.fromRGB(0, 220, 255) },
-    { name = "暗夜紫", bg = Color3.fromRGB(20, 14, 30), accent = Color3.fromRGB(170, 130, 255) },
-    { name = "霓虹绿", bg = Color3.fromRGB(12, 22, 16), accent = Color3.fromRGB(0, 255, 130) },
-    { name = "烈焰红", bg = Color3.fromRGB(28, 12, 16), accent = Color3.fromRGB(255, 90, 100) },
-    { name = "日落橙", bg = Color3.fromRGB(28, 20, 12), accent = Color3.fromRGB(255, 170, 60) },
-    { name = "樱花粉", bg = Color3.fromRGB(28, 16, 24), accent = Color3.fromRGB(255, 130, 200) },
+    { name="霓虹粉", bg=Color3.fromRGB(14,6,24),  card=Color3.fromRGB(26,14,46),  a=Color3.fromRGB(255,45,149), b=Color3.fromRGB(0,255,213), c=Color3.fromRGB(255,230,0) },
+    { name="电光紫", bg=Color3.fromRGB(8,6,26),   card=Color3.fromRGB(20,14,48),  a=Color3.fromRGB(160,80,255), b=Color3.fromRGB(0,220,255), c=Color3.fromRGB(255,100,200) },
+    { name="赛博绿", bg=Color3.fromRGB(6,18,10),  card=Color3.fromRGB(12,34,20),  a=Color3.fromRGB(0,255,120),  b=Color3.fromRGB(255,230,0), c=Color3.fromRGB(255,80,120) },
+    { name="烈焰橙", bg=Color3.fromRGB(22,8,4),   card=Color3.fromRGB(42,18,10),  a=Color3.fromRGB(255,120,20), b=Color3.fromRGB(255,40,80),  c=Color3.fromRGB(255,230,120) },
+    { name="深海蓝", bg=Color3.fromRGB(4,10,26),  card=Color3.fromRGB(10,22,48),  a=Color3.fromRGB(0,180,255),  b=Color3.fromRGB(120,255,200), c=Color3.fromRGB(255,120,180) },
+    { name="毒液绿", bg=Color3.fromRGB(10,14,6),  card=Color3.fromRGB(22,32,12),  a=Color3.fromRGB(180,255,0),  b=Color3.fromRGB(255,80,180), c=Color3.fromRGB(0,255,220) },
 }
+local T = table.clone(THEMES[1])
 
-local CurrentTheme = {
-    bg     = THEMES[1].bg,
-    accent = THEMES[1].accent,
-}
+local TXT        = Color3.fromRGB(240, 240, 250)
+local TXT_DIM    = Color3.fromRGB(150, 150, 175)
+local TXT_MUTED  = Color3.fromRGB(90, 90, 115)
 
-local function destroyOld()
-    local parents = { CoreGui }
-    local pg = LP:FindFirstChildOfClass("PlayerGui")
-    if pg then table.insert(parents, pg) end
-    for _, parent in ipairs(parents) do
-        for _, child in ipairs(parent:GetChildren()) do
-            if child.Name == "SigmaHub"
-            or child.Name == "SigmaHub_ESP"
-            or child.Name == "SigmaHub_Loader" then
-                pcall(function() child:Destroy() end)
+-- ─────────────────────────────────────────────────────────────────────
+--  🧹  清理
+-- ─────────────────────────────────────────────────────────────────────
+for _, p in ipairs({ CoreGui, LP:FindFirstChildOfClass("PlayerGui") }) do
+    if p then
+        for _, c in ipairs(p:GetChildren()) do
+            if c.Name == "SigmaHubNeon" or c.Name == "SigmaHubNeon_ESP" then
+                pcall(function() c:Destroy() end)
             end
         end
     end
 end
-destroyOld()
 
--- =====================================================================
---  PART 1 — 加载屏
--- =====================================================================
-local loadGui = Instance.new("ScreenGui")
-loadGui.Name           = "SigmaHub_Loader"
-loadGui.ResetOnSpawn   = false
-loadGui.IgnoreGuiInset = true
-loadGui.DisplayOrder   = 100
-pcall(function() loadGui.Parent = CoreGui end)
-if not loadGui.Parent then loadGui.Parent = LP:WaitForChild("PlayerGui") end
-
-local loadRoot = Instance.new("Frame")
-loadRoot.Size                   = UDim2.new(1, 0, 1, 0)
-loadRoot.Position               = UDim2.new(0, 0, -1, 0)
-loadRoot.BackgroundTransparency = 1
-loadRoot.BorderSizePixel        = 0
-loadRoot.ZIndex                 = 5
-loadRoot.Parent                 = loadGui
-
-local loadBg = Instance.new("Frame")
-loadBg.Size                   = UDim2.new(1 + CFG.OVERSCAN * 2, 0, 1 + CFG.OVERSCAN * 2, 0)
-loadBg.Position               = UDim2.new(-CFG.OVERSCAN, 0, -CFG.OVERSCAN, 0)
-loadBg.BackgroundColor3       = Color3.fromRGB(10, 14, 24)
-loadBg.BorderSizePixel        = 0
-loadBg.ZIndex                 = 5
-loadBg.Parent                 = loadRoot
-
-local loadBgGrad = Instance.new("UIGradient")
-loadBgGrad.Rotation = 90
-loadBgGrad.Color = ColorSequence.new({
-    ColorSequenceKeypoint.new(0,   Color3.fromRGB(8, 12, 22)),
-    ColorSequenceKeypoint.new(0.5, Color3.fromRGB(20, 28, 52)),
-    ColorSequenceKeypoint.new(1,   Color3.fromRGB(8, 12, 22)),
-})
-loadBgGrad.Parent = loadBg
-
-local loadStars = {}
-for i = 1, CFG.STAR_COUNT do
-    local star = Instance.new("Frame")
-    local sz = math.random(2, 5)
-    star.Size                   = UDim2.new(0, sz, 0, sz)
-    star.Position               = UDim2.new(math.random(), 0, math.random(), 0)
-    star.BackgroundColor3       = Color3.new(1, 1, 1)
-    star.BackgroundTransparency = math.random(40, 85) / 100
-    star.BorderSizePixel        = 0
-    star.ZIndex                 = 6
-    star.Parent                 = loadBg
-    Instance.new("UICorner", star).CornerRadius = UDim.new(1, 0)
-    table.insert(loadStars, star)
-end
-
-for _, star in ipairs(loadStars) do
-    task.spawn(function()
-        while star.Parent and loadRoot.Parent do
-            local target = math.random(30, 90) / 100
-            TweenService:Create(star, TweenInfo.new(math.random(8, 20) / 10), {
-                BackgroundTransparency = target
-            }):Play()
-            task.wait(math.random(10, 30) / 10)
-        end
+-- ─────────────────────────────────────────────────────────────────────
+--  📊  运行状态
+-- ─────────────────────────────────────────────────────────────────────
+local RT = { fps = 60, clock = "00:00:00" }
+task.spawn(function()
+    local f, t0 = 0, tick()
+    RunService.RenderStepped:Connect(function()
+        f = f + 1
+        local n = tick()
+        if n - t0 >= 1 then RT.fps = f; f = 0; t0 = n end
     end)
-end
-
+end)
 task.spawn(function()
-    while loadRoot.Parent do
-        local dt = RunService.Heartbeat:Wait()
-        for _, star in ipairs(loadStars) do
-            if star.Parent then
-                local p = star.Position
-                local newY = p.Y.Scale + dt * 0.008
-                if newY > 1.1 then
-                    star.Position = UDim2.new(math.random(), 0, -0.05, 0)
-                else
-                    star.Position = UDim2.new(p.X.Scale, 0, newY, 0)
-                end
-            end
-        end
+    while true do
+        pcall(function()
+            RT.clock = DateTime.now():FormatLocalTime("HH:mm:ss", "zh-cn")
+        end)
+        task.wait(1)
     end
 end)
 
-local function loadCornerGlow(ax, ay, px, py)
-    local glow = Instance.new("ImageLabel")
-    glow.Size                   = UDim2.new(0, 520, 0, 520)
-    glow.AnchorPoint            = Vector2.new(ax, ay)
-    glow.Position               = UDim2.new(px, 0, py, 0)
-    glow.BackgroundTransparency = 1
-    glow.Image                  = "rbxasset://textures/particles/sparkles_main.dds"
-    glow.ImageColor3            = CurrentTheme.accent
-    glow.ImageTransparency      = 0.9
-    glow.ZIndex                 = 7
-    glow.Parent                 = loadBg
-end
-loadCornerGlow(0, 1, 0.02, 0.98)
-loadCornerGlow(1, 1, 0.98, 0.98)
-loadCornerGlow(0, 0, 0.02, 0.02)
-loadCornerGlow(1, 0, 0.98, 0.02)
-
-local loadTitleArea = Instance.new("Frame")
-loadTitleArea.Size                   = UDim2.new(1, 0, 0, 220)
-loadTitleArea.Position               = UDim2.new(0, 0, 0.26, 0)
-loadTitleArea.BackgroundTransparency = 1
-loadTitleArea.ZIndex                 = 15
-loadTitleArea.Parent                 = loadRoot
-
-local loadLineTop = Instance.new("Frame")
-loadLineTop.Size             = UDim2.new(0, 0, 0, 3)
-loadLineTop.Position         = UDim2.new(0.5, 0, 0, -14)
-loadLineTop.AnchorPoint      = Vector2.new(0.5, 0)
-loadLineTop.BackgroundColor3 = CurrentTheme.accent
-loadLineTop.BorderSizePixel  = 0
-loadLineTop.ZIndex           = 16
-loadLineTop.Parent           = loadTitleArea
-
-local loadLineBottom = Instance.new("Frame")
-loadLineBottom.Size             = UDim2.new(0, 0, 0, 2)
-loadLineBottom.Position         = UDim2.new(0.5, 0, 1, 14)
-loadLineBottom.AnchorPoint      = Vector2.new(0.5, 0)
-loadLineBottom.BackgroundColor3 = Color3.fromRGB(170, 130, 255)
-loadLineBottom.BorderSizePixel  = 0
-loadLineBottom.ZIndex           = 16
-loadLineBottom.Parent           = loadTitleArea
-
-local loadMainTitle = Instance.new("TextLabel")
-loadMainTitle.Size                   = UDim2.new(0.9, 0, 0, 80)
-loadMainTitle.Position               = UDim2.new(0.05, 0, 0.16, 0)
-loadMainTitle.BackgroundTransparency = 1
-loadMainTitle.Text                   = "★ SIGMA HUB ★"
-loadMainTitle.TextColor3             = CurrentTheme.accent
-loadMainTitle.Font                   = Enum.Font.GothamBold
-loadMainTitle.TextSize               = 50
-loadMainTitle.TextTransparency       = 1
-loadMainTitle.ZIndex                 = 17
-loadMainTitle.Parent                 = loadTitleArea
-
-local loadTitleGlow = Instance.new("TextLabel")
-loadTitleGlow.Size                   = loadMainTitle.Size
-loadTitleGlow.Position               = loadMainTitle.Position
-loadTitleGlow.BackgroundTransparency = 1
-loadTitleGlow.Text                   = loadMainTitle.Text
-loadTitleGlow.TextColor3             = CurrentTheme.accent
-loadTitleGlow.Font                   = Enum.Font.GothamBold
-loadTitleGlow.TextSize               = 50
-loadTitleGlow.TextTransparency       = 1
-loadTitleGlow.ZIndex                 = 16
-loadTitleGlow.Parent                 = loadTitleArea
-
-local loadSubtitle = Instance.new("TextLabel")
-loadSubtitle.Size                   = UDim2.new(0.8, 0, 0, 36)
-loadSubtitle.Position               = UDim2.new(0.1, 0, 0.66, 0)
-loadSubtitle.BackgroundTransparency = 1
-loadSubtitle.Text                   = "系统正在初始化"
-loadSubtitle.TextColor3             = Color3.fromRGB(170, 130, 255)
-loadSubtitle.Font                   = Enum.Font.Gotham
-loadSubtitle.TextSize               = 17
-loadSubtitle.TextTransparency       = 1
-loadSubtitle.ZIndex                 = 17
-loadSubtitle.Parent                 = loadTitleArea
-
-local loadProgressArea = Instance.new("Frame")
-loadProgressArea.Size                   = UDim2.new(1, 0, 0, 120)
-loadProgressArea.Position               = UDim2.new(0, 0, 0.62, 0)
-loadProgressArea.BackgroundTransparency = 1
-loadProgressArea.ZIndex                 = 15
-loadProgressArea.Parent                 = loadRoot
-
-local loadBarTrack = Instance.new("Frame")
-loadBarTrack.Size                   = UDim2.new(0.66, 0, 0, 7)
-loadBarTrack.Position               = UDim2.new(0.08, 0, 0.22, 0)
-loadBarTrack.BackgroundColor3       = Color3.fromRGB(35, 42, 62)
-loadBarTrack.BackgroundTransparency = 0.25
-loadBarTrack.BorderSizePixel        = 0
-loadBarTrack.ZIndex                 = 16
-loadBarTrack.Parent                 = loadProgressArea
-Instance.new("UICorner", loadBarTrack).CornerRadius = UDim.new(1, 0)
-
-local loadBarFill = Instance.new("Frame")
-loadBarFill.Size             = UDim2.new(0, 0, 1, 0)
-loadBarFill.BackgroundColor3 = CurrentTheme.accent
-loadBarFill.BorderSizePixel  = 0
-loadBarFill.ClipsDescendants = true
-loadBarFill.ZIndex           = 17
-loadBarFill.Parent           = loadBarTrack
-Instance.new("UICorner", loadBarFill).CornerRadius = UDim.new(1, 0)
-
-local loadBarShine = Instance.new("Frame")
-loadBarShine.Size                   = UDim2.new(0, 32, 1, 0)
-loadBarShine.BackgroundColor3       = Color3.new(1, 1, 1)
-loadBarShine.BackgroundTransparency = 0.65
-loadBarShine.BorderSizePixel        = 0
-loadBarShine.ZIndex                 = 18
-loadBarShine.Parent                 = loadBarFill
-
-local loadPctText = Instance.new("TextLabel")
-loadPctText.Size                   = UDim2.new(0, 80, 0, 30)
-loadPctText.AnchorPoint            = Vector2.new(1, 0)
-loadPctText.Position               = UDim2.new(0.97, 0, 0.13, 0)
-loadPctText.BackgroundTransparency = 1
-loadPctText.Text                   = "0%"
-loadPctText.TextColor3             = CurrentTheme.accent
-loadPctText.Font                   = Enum.Font.GothamBold
-loadPctText.TextSize               = 16
-loadPctText.TextXAlignment         = Enum.TextXAlignment.Right
-loadPctText.TextTransparency       = 1
-loadPctText.ZIndex                 = 17
-loadPctText.Parent                 = loadProgressArea
-
-local loadStatusPill = Instance.new("Frame")
-loadStatusPill.Size                   = UDim2.new(0, 240, 0, 34)
-loadStatusPill.AnchorPoint            = Vector2.new(0.5, 0)
-loadStatusPill.Position               = UDim2.new(0.5, 0, 0.6, 0)
-loadStatusPill.BackgroundColor3       = Color3.fromRGB(22, 28, 44)
-loadStatusPill.BackgroundTransparency = 0.3
-loadStatusPill.ZIndex                 = 16
-loadStatusPill.Visible                = false
-loadStatusPill.Parent                 = loadProgressArea
-Instance.new("UICorner", loadStatusPill).CornerRadius = UDim.new(1, 0)
-
-local loadStatusDot = Instance.new("Frame")
-loadStatusDot.Size             = UDim2.new(0, 9, 0, 9)
-loadStatusDot.AnchorPoint      = Vector2.new(0, 0.5)
-loadStatusDot.Position         = UDim2.new(0, 15, 0.5, 0)
-loadStatusDot.BackgroundColor3 = CurrentTheme.accent
-loadStatusDot.BorderSizePixel  = 0
-loadStatusDot.ZIndex           = 18
-loadStatusDot.Parent           = loadStatusPill
-Instance.new("UICorner", loadStatusDot).CornerRadius = UDim.new(1, 0)
-
-local loadStatusText = Instance.new("TextLabel")
-loadStatusText.Size                   = UDim2.new(1, -36, 1, 0)
-loadStatusText.Position               = UDim2.new(0, 32, 0, 0)
-loadStatusText.BackgroundTransparency = 1
-loadStatusText.Text                   = "正在启动系统…"
-loadStatusText.TextColor3             = Color3.fromRGB(170, 130, 255)
-loadStatusText.Font                   = Enum.Font.GothamMedium
-loadStatusText.TextSize               = 13
-loadStatusText.TextXAlignment         = Enum.TextXAlignment.Left
-loadStatusText.TextTransparency       = 1
-loadStatusText.ZIndex                 = 18
-loadStatusText.Parent                 = loadStatusPill
-
-local loadWelcomeText = Instance.new("TextLabel")
-loadWelcomeText.Size                   = UDim2.new(0.9, 0, 0, 60)
-loadWelcomeText.Position               = UDim2.new(0.05, 0, 0.44, 0)
-loadWelcomeText.BackgroundTransparency = 1
-loadWelcomeText.Text                   = "欢迎使用 SIGMA HUB"
-loadWelcomeText.TextColor3             = CurrentTheme.accent
-loadWelcomeText.Font                   = Enum.Font.GothamBold
-loadWelcomeText.TextSize               = 34
-loadWelcomeText.TextWrapped            = true
-loadWelcomeText.TextTransparency       = 1
-loadWelcomeText.ZIndex                 = 17
-loadWelcomeText.Parent                 = loadRoot
-
-TweenService:Create(loadRoot, TweenInfo.new(1.3, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
-    Position = UDim2.new(0, 0, 0, 0)
-}):Play()
-
-TweenService:Create(loadLineTop, TweenInfo.new(0.9, Enum.EasingStyle.Quad), {
-    Size = UDim2.new(0, 240, 0, 3)
-}):Play()
-
-TweenService:Create(loadLineBottom, TweenInfo.new(0.9, Enum.EasingStyle.Quad), {
-    Size = UDim2.new(0, 180, 0, 2)
-}):Play()
-
-task.delay(0.55, function()
-    TweenService:Create(loadMainTitle, TweenInfo.new(1.1), {TextTransparency = 0}):Play()
-    TweenService:Create(loadTitleGlow, TweenInfo.new(1.1), {TextTransparency = 0.55}):Play()
-    TweenService:Create(loadSubtitle,  TweenInfo.new(1.4), {TextTransparency = 0}):Play()
-    TweenService:Create(loadPctText,   TweenInfo.new(1.1), {TextTransparency = 0}):Play()
-    loadStatusPill.Visible = true
-    loadStatusPill.BackgroundTransparency = 1
-    TweenService:Create(loadStatusPill, TweenInfo.new(1.1), {BackgroundTransparency = 0.3}):Play()
-    TweenService:Create(loadStatusText, TweenInfo.new(1.1), {TextTransparency = 0}):Play()
-end)
-
-local loadFloating = true
-task.spawn(function()
-    local base = loadMainTitle.Position
-    local t = 0
-    while loadFloating and loadMainTitle.Parent do
-        t = t + RunService.RenderStepped:Wait()
-        local dy  = math.sin(t * 1.2) * 6
-        local dx  = math.sin(t * 0.7) * 9
-        local rot = math.sin(t * 0.7) * 2.2
-        local pos = UDim2.new(base.X.Scale, base.X.Offset + dx, base.Y.Scale, base.Y.Offset + dy)
-        loadMainTitle.Position = pos
-        loadMainTitle.Rotation = rot
-        loadTitleGlow.Position = pos
-        loadTitleGlow.Rotation = rot
-    end
-end)
-
-local loadBlinking = true
-task.spawn(function()
-    while loadBlinking and loadStatusDot.Parent do
-        TweenService:Create(loadStatusDot, TweenInfo.new(0.55), {BackgroundTransparency = 0.7}):Play()
-        task.wait(0.55)
-        TweenService:Create(loadStatusDot, TweenInfo.new(0.55), {BackgroundTransparency = 0}):Play()
-        task.wait(0.55)
-    end
-end)
-
-TweenService:Create(loadBarFill, TweenInfo.new(CFG.LOAD_TIME, Enum.EasingStyle.Linear), {
-    Size = UDim2.new(1, 0, 1, 0)
-}):Play()
-
-local loadShining = true
-task.spawn(function()
-    while loadShining and loadBarFill.Parent do
-        loadBarShine.Position = UDim2.new(0, 0, 0, 0)
-        TweenService:Create(loadBarShine, TweenInfo.new(1.4, Enum.EasingStyle.Sine), {
-            Position = UDim2.new(1, 0, 0, 0)
-        }):Play()
-        task.wait(1.4)
-    end
-end)
-
-task.spawn(function()
-    local messages = {
-        "正在启动系统…",
-        "正在加载资源…",
-        "正在构建界面…",
-        "正在完成设置…",
-        "准备就绪！"
-    }
-    for i = 0, 100 do
-        loadPctText.Text = i .. "%"
-        local idx = math.floor((i / 100) * (#messages - 1)) + 1
-        loadStatusText.Text = messages[math.clamp(idx, 1, #messages)]
-        task.wait(CFG.LOAD_TIME / 100)
-    end
-end)
-
-task.wait(CFG.LOAD_TIME + 0.35)
-
-loadFloating = false
-loadShining  = false
-loadBlinking = false
-
-local DROP_DIST = (Camera and Camera.ViewportSize.Y or 900) * 1.7
-
-local function loadDropAway(obj, delay, spin)
-    task.delay(delay, function()
-        if not obj or not obj.Parent then return end
-        local goal = UDim2.new(
-            obj.Position.X.Scale, obj.Position.X.Offset,
-            obj.Position.Y.Scale, obj.Position.Y.Offset + DROP_DIST
-        )
-        local info = TweenInfo.new(0.9, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
-        local props = { Position = goal, Rotation = (obj.Rotation or 0) + spin }
-        if obj:IsA("TextLabel") or obj:IsA("TextButton") then
-            props.TextTransparency = 1
-        elseif obj:IsA("Frame") or obj:IsA("ImageLabel") then
-            props.BackgroundTransparency = 1
-        end
-        TweenService:Create(obj, info, props):Play()
-    end)
-end
-
-loadDropAway(loadMainTitle,  0,    200)
-loadDropAway(loadTitleGlow,  0,    200)
-loadDropAway(loadLineTop,    0.05, -55)
-loadDropAway(loadLineBottom, 0.10,  55)
-loadDropAway(loadSubtitle,   0.14, -30)
-loadDropAway(loadBarTrack,   0.22,  40)
-loadDropAway(loadPctText,    0.27, -40)
-loadDropAway(loadStatusPill, 0.32,  28)
-
-task.delay(0.22, function()
-    TweenService:Create(loadBarFill, TweenInfo.new(0.8), {BackgroundTransparency = 1}):Play()
-    TweenService:Create(loadBarShine, TweenInfo.new(0.8), {BackgroundTransparency = 1}):Play()
-end)
-
-task.delay(1.1, function()
-    TweenService:Create(loadWelcomeText, TweenInfo.new(0.9), {TextTransparency = 0}):Play()
-end)
-
-task.wait(1.1 + 1.7)
-
-TweenService:Create(loadWelcomeText, TweenInfo.new(1, Enum.EasingStyle.Quad), {TextTransparency = 1}):Play()
-TweenService:Create(loadBg, TweenInfo.new(1.2, Enum.EasingStyle.Quad), {BackgroundTransparency = 1}):Play()
-
-for i, star in ipairs(loadStars) do
-    task.delay(i * 0.008, function()
-        if star.Parent then
-            TweenService:Create(star, TweenInfo.new(0.7), {BackgroundTransparency = 1}):Play()
-        end
-    end)
-end
-
-task.wait(1.35)
-loadGui:Destroy()
-
--- =====================================================================
---  PART 2 — 主面板
--- =====================================================================
-
-local State = {
-    AutoSkill  = false,
-    SkillZ     = false,
-    SkillX     = false,
-    SkillC     = false,
-    SkillV     = false,
-    BarLock    = false,
-    AutoSell   = false,
-    PlayerESP  = false,
-    NpcESP     = false,
+-- ─────────────────────────────────────────────────────────────────────
+--  🧰  NPC 工具
+-- ─────────────────────────────────────────────────────────────────────
+local S = {
+    AS=false, SZ=false, SX=false, SC=false, SV=false,
+    BL=false, ASell=false, ABuy=false, PE=false, NE=false,
 }
 
-local function lowerText(s)
-    if type(s) ~= "string" then return "" end
-    return string.lower(s)
-end
-
-local function containsKeyword(text, keywords)
-    local t = lowerText(text)
-    if t == "" then return false end
-    for _, kw in ipairs(keywords) do
-        if string.find(t, lowerText(kw), 1, true) then return true end
-    end
+local function lc(x) return type(x)=="string" and string.lower(x) or "" end
+local function hasKw(t, kws)
+    local s = lc(t); if s=="" then return false end
+    for _, k in ipairs(kws) do if string.find(s, lc(k), 1, true) then return true end end
     return false
 end
-
-local function normalizeNpcName(name)
-    if type(name) ~= "string" then return "" end
-    local n = string.lower(name)
-    if CFG.NPC_NAME_ALIASES and CFG.NPC_NAME_ALIASES[n] then
-        return CFG.NPC_NAME_ALIASES[n]
-    end
-    if CFG.AggressiveDedupe then
-        n = n:gsub("%s*%b()%s*$", "")
-        n = n:gsub("[%s_%-]%d+$", "")
-        n = n:gsub("[%s_%-%.%:]+", "")
-        n = n:gsub("%d+$", "")
-        if CFG.NPC_NAME_ALIASES and CFG.NPC_NAME_ALIASES[n] then
-            return CFG.NPC_NAME_ALIASES[n]
-        end
-    end
-    return n
+local function normNpc(n)
+    if type(n)~="string" then return "" end
+    local x = string.lower(n)
+    if C.ALIASES[x] then return C.ALIASES[x] end
+    x = x:gsub("%s*%b()%s*$",""):gsub("[%s_%-]%d+$",""):gsub("[%s_%-%.%:]+",""):gsub("%d+$","")
+    if C.ALIASES[x] then return C.ALIASES[x] end
+    return x
 end
-
-local function isQuestOrSpawnNpc(model)
-    if not model or not model.Parent then return false end
-    local ok, tags = pcall(function() return CollectionService:GetTags(model) end)
+local function isQuestNpc(m)
+    if not m or not m.Parent then return false end
+    local ok, tags = pcall(function() return CS:GetTags(m) end)
     if ok and tags then
-        for _, tag in ipairs(tags) do
-            local tl = lowerText(tag)
-            for _, kw in ipairs(CFG.NPC_TAGS) do
-                if tl == lowerText(kw) or string.find(tl, lowerText(kw), 1, true) then
-                    return true
-                end
+        for _, t in ipairs(tags) do
+            local tl = lc(t)
+            for _, k in ipairs(C.NPC_TAGS) do
+                if tl==lc(k) or string.find(tl, lc(k), 1, true) then return true end
             end
         end
     end
-    if containsKeyword(model.Name, CFG.NPC_KEYWORDS) then return true end
-    for _, attr in ipairs(CFG.NPC_ATTRS) do
-        local ok2, val = pcall(function() return model:GetAttribute(attr) end)
-        if ok2 and val ~= nil then return true end
+    if hasKw(m.Name, C.NPC_KEYWORDS) then return true end
+    for _, a in ipairs(C.NPC_ATTRS) do
+        local ok2, v = pcall(function() return m:GetAttribute(a) end)
+        if ok2 and v~=nil then return true end
     end
-    for _, child in ipairs(model:GetDescendants()) do
-        if child:IsA("ProximityPrompt") or child:IsA("ClickDetector")
-        or child:IsA("Dialog") or child:IsA("DialogChoice") then
-            return true
-        end
-        if containsKeyword(child.Name, CFG.NPC_KEYWORDS) then return true end
-        local ok3, tags2 = pcall(function() return CollectionService:GetTags(child) end)
-        if ok3 and tags2 then
-            for _, tag in ipairs(tags2) do
-                local tl = lowerText(tag)
-                for _, kw in ipairs(CFG.NPC_TAGS) do
-                    if tl == lowerText(kw) or string.find(tl, lowerText(kw), 1, true) then
-                        return true
-                    end
-                end
-            end
-        end
-        for _, attr in ipairs(CFG.NPC_ATTRS) do
-            local ok4, val = pcall(function() return child:GetAttribute(attr) end)
-            if ok4 and val ~= nil then return true end
+    for _, ch in ipairs(m:GetDescendants()) do
+        if ch:IsA("ProximityPrompt") or ch:IsA("ClickDetector")
+        or ch:IsA("Dialog") or ch:IsA("DialogChoice") then return true end
+        if hasKw(ch.Name, C.NPC_KEYWORDS) then return true end
+        for _, a in ipairs(C.NPC_ATTRS) do
+            local ok3, v = pcall(function() return ch:GetAttribute(a) end)
+            if ok3 and v~=nil then return true end
         end
     end
     return false
 end
-
-local function isEligibleNpc(model)
-    if not model or not model.Parent then return false end
-    if Players:GetPlayerFromCharacter(model) then return false end
-    local hum = model:FindFirstChildOfClass("Humanoid")
-    local hrp = model:FindFirstChild("HumanoidRootPart")
-    if not hum or not hrp then return false end
-    if hum.Health <= 0 then return false end
-    if CFG.FilterQuestNpcs then return isQuestOrSpawnNpc(model) end
+local function isOkNpc(m)
+    if not m or not m.Parent then return false end
+    if Players:GetPlayerFromCharacter(m) then return false end
+    local h = m:FindFirstChildOfClass("Humanoid")
+    local r = m:FindFirstChild("HumanoidRootPart")
+    if not h or not r or h.Health<=0 then return false end
+    if C.FilterQuestNpcs then return isQuestNpc(m) end
     return true
 end
-
-local function dedupeNpcsByName(npcList)
-    if not CFG.DedupeNpcs then return npcList end
-    local myPos = Vector3.new(0, 0, 0)
-    local char = LP.Character
-    if char then
-        local hrp = char:FindFirstChild("HumanoidRootPart")
-        if hrp then myPos = hrp.Position end
+local function dedupe(list)
+    if not C.DedupeNpcs then return list end
+    local pos = Vector3.new(0,0,0)
+    if LP.Character then
+        local h = LP.Character:FindFirstChild("HumanoidRootPart")
+        if h then pos = h.Position end
     end
-    local byKey = {}
-    for _, npc in ipairs(npcList) do
-        local hrp = npc:FindFirstChild("HumanoidRootPart")
-        if hrp then
-            local d = (hrp.Position - myPos).Magnitude
-            local key = normalizeNpcName(npc.Name)
-            local existing = byKey[key]
-            if not existing or d < existing.dist then
-                byKey[key] = { npc = npc, dist = d }
-            end
+    local by = {}
+    for _, n in ipairs(list) do
+        local r = n:FindFirstChild("HumanoidRootPart")
+        if r then
+            local d = (r.Position - pos).Magnitude
+            local k = normNpc(n.Name)
+            if not by[k] or d < by[k].d then by[k] = { n=n, d=d } end
         end
     end
-    local result = {}
-    for _, entry in pairs(byKey) do
-        table.insert(result, entry.npc)
-    end
-    return result
+    local out = {}
+    for _, e in pairs(by) do table.insert(out, e.n) end
+    return out
 end
 
-local hubGui = Instance.new("ScreenGui")
-hubGui.Name         = "SigmaHub"
-hubGui.ResetOnSpawn = false
-hubGui.DisplayOrder = 50
-pcall(function() hubGui.Parent = CoreGui end)
-if not hubGui.Parent then hubGui.Parent = LP:WaitForChild("PlayerGui") end
+-- ─────────────────────────────────────────────────────────────────────
+--  🪟  GUI
+-- ─────────────────────────────────────────────────────────────────────
+local gui = Instance.new("ScreenGui")
+gui.Name = "SigmaHubNeon"
+gui.ResetOnSpawn = false
+gui.DisplayOrder = 50
+pcall(function() gui.Parent = CoreGui end)
+if not gui.Parent then gui.Parent = LP:WaitForChild("PlayerGui") end
 
 local espGui
 
-local function newSound(id, vol)
+local function sfx(id, v)
     local s = Instance.new("Sound")
     s.SoundId = "rbxassetid://" .. id
-    s.Volume  = vol or 0.7
-    s.Parent  = hubGui
+    s.Volume = v or 0.45
+    s.Parent = gui
     return s
 end
+local sClick  = sfx("140207837688369", 0.4)
+local sToggle = sfx("72321534878838", 0.4)
+local sSell   = sfx("90531793028786", 0.4)
+local sBuy    = sfx("90531793028786", 0.4)
+local sTp     = sfx("124934430745275", 0.4)
+local sDel    = sfx("154157386", 0.7)
 
-local sClick  = newSound("140207837688369", 0.6)
-local sSkill  = newSound("72321534878838",  0.6)
-local sLock   = newSound("131661992591924", 0.6)
-local sSell   = newSound("90531793028786",  0.6)
-local sTp     = newSound("124934430745275", 0.6)
-local sDelete = newSound("154157386",       0.9)
-local sWin    = newSound("9125402735",      0.7)
-local sLose   = newSound("9125403864",      0.7)
+-- ─────────────────────────────────────────────────────────────────────
+--  📐  尺寸
+-- ─────────────────────────────────────────────────────────────────────
+local PW, PH = 560, 480
+local PPOS  = UDim2.new(0.5, 0, 0.5, 0)
 
-local PANEL_W, PANEL_H = 420, 320
-local PANEL_POS  = UDim2.new(0.5, 0, 0.5, 0)
-local MIN_SIZE   = UDim2.new(0, PANEL_W, 0, 42)
-local FULL_SIZE  = UDim2.new(0, PANEL_W, 0, PANEL_H)
-
+-- ─────────────────────────────────────────────────────────────────────
+--  ◆  主面板（无入场动画，直接居中）
+-- ─────────────────────────────────────────────────────────────────────
 local panel = Instance.new("Frame")
-panel.Size             = FULL_SIZE
-panel.AnchorPoint      = Vector2.new(0.5, 0.5)
-panel.Position         = UDim2.new(0.5, 0, -0.6, 0)
-panel.BackgroundColor3 = CurrentTheme.bg
-panel.BorderSizePixel  = 0
-panel.Parent           = hubGui
-Instance.new("UICorner", panel).CornerRadius = UDim.new(0, 12)
+panel.Size = UDim2.new(0, PW, 0, PH)
+panel.AnchorPoint = Vector2.new(0.5, 0.5)
+panel.Position = PPOS                       -- 直接定位到屏幕中央
+panel.BackgroundColor3 = T.bg
+panel.BorderSizePixel = 0
+panel.Parent = gui
+Instance.new("UICorner", panel).CornerRadius = UDim.new(0, 18)
 
-local panelStroke = Instance.new("UIStroke", panel)
-panelStroke.Color        = CurrentTheme.accent
-panelStroke.Thickness    = 1.5
-panelStroke.Transparency = 0.25
+-- 静态双层描边（无呼吸动画）
+local strokeOuter = Instance.new("UIStroke", panel)
+strokeOuter.Color = T.a
+strokeOuter.Thickness = 3
+strokeOuter.Transparency = 0.35
 
-local panelScale = Instance.new("UIScale")
-panelScale.Scale  = CFG.UI_SCALE
-panelScale.Parent = panel
+local strokeInner = Instance.new("UIStroke", panel)
+strokeInner.Color = T.b
+strokeInner.Thickness = 1
+strokeInner.Transparency = 0.4
 
-local titleBar = Instance.new("Frame")
-titleBar.Size                   = UDim2.new(1, 0, 0, 42)
-titleBar.BackgroundTransparency = 1
-titleBar.Parent                 = panel
+local pScale = Instance.new("UIScale")
+pScale.Scale = C.UI_SCALE
+pScale.Parent = panel
 
-local titleLabel = Instance.new("TextLabel")
-titleLabel.Size                   = UDim2.new(1, -90, 1, 0)
-titleLabel.Position               = UDim2.new(0, 14, 0, 0)
-titleLabel.BackgroundTransparency = 1
-titleLabel.Text                   = "★ Sigma Hub ★"
-titleLabel.TextColor3             = CurrentTheme.accent
-titleLabel.Font                   = Enum.Font.GothamBold
-titleLabel.TextSize               = 14
-titleLabel.TextXAlignment         = Enum.TextXAlignment.Left
-titleLabel.Parent                 = titleBar
+-- 顶部装饰带（静态渐变，无流动动画）
+local deco = Instance.new("Frame")
+deco.Size = UDim2.new(1, -32, 0, 8)
+deco.Position = UDim2.new(0, 16, 0, 12)
+deco.BackgroundColor3 = T.a
+deco.BorderSizePixel = 0
+deco.Parent = panel
+Instance.new("UICorner", deco).CornerRadius = UDim.new(1, 0)
 
-local minBtn = Instance.new("TextButton")
-minBtn.Size             = UDim2.new(0, 26, 0, 26)
-minBtn.Position         = UDim2.new(1, -66, 0.5, -13)
-minBtn.BackgroundColor3 = Color3.fromRGB(0, 100, 200)
-minBtn.Text             = "—"
-minBtn.TextColor3       = Color3.new(1, 1, 1)
-minBtn.Font             = Enum.Font.GothamBold
-minBtn.TextSize         = 14
-minBtn.AutoButtonColor  = false
-minBtn.Parent           = titleBar
-Instance.new("UICorner", minBtn).CornerRadius = UDim.new(0, 6)
+local decoGrad = Instance.new("UIGradient", deco)
+decoGrad.Color = ColorSequence.new({
+    ColorSequenceKeypoint.new(0, T.a),
+    ColorSequenceKeypoint.new(0.33, T.b),
+    ColorSequenceKeypoint.new(0.66, T.c),
+    ColorSequenceKeypoint.new(1, T.a),
+})
 
-local closeBtn = Instance.new("TextButton")
-closeBtn.Size             = UDim2.new(0, 26, 0, 26)
-closeBtn.Position         = UDim2.new(1, -34, 0.5, -13)
-closeBtn.BackgroundColor3 = Color3.fromRGB(160, 30, 50)
-closeBtn.Text             = "X"
-closeBtn.TextColor3       = Color3.new(1, 1, 1)
-closeBtn.Font             = Enum.Font.GothamBold
-closeBtn.TextSize         = 13
-closeBtn.AutoButtonColor  = false
-closeBtn.Parent           = titleBar
-Instance.new("UICorner", closeBtn).CornerRadius = UDim.new(0, 6)
+-- 标题栏
+local tbar = Instance.new("Frame")
+tbar.Size = UDim2.new(1, 0, 0, 44)
+tbar.Position = UDim2.new(0, 0, 0, 26)
+tbar.BackgroundTransparency = 1
+tbar.Parent = panel
 
+local brandIco = Instance.new("TextLabel")
+brandIco.Size = UDim2.new(0, 40, 1, 0)
+brandIco.Position = UDim2.new(0, 20, 0, 0)
+brandIco.BackgroundTransparency = 1
+brandIco.Text = "◆"
+brandIco.TextColor3 = T.a
+brandIco.Font = Enum.Font.GothamBold
+brandIco.TextSize = 22
+brandIco.Parent = tbar
+
+local titleLbl = Instance.new("TextLabel")
+titleLbl.Size = UDim2.new(1, -220, 1, 0)
+titleLbl.Position = UDim2.new(0, 60, 0, 0)
+titleLbl.BackgroundTransparency = 1
+titleLbl.Text = "SIGMA HUB"
+titleLbl.TextColor3 = TXT
+titleLbl.Font = Enum.Font.GothamBold
+titleLbl.TextSize = 18
+titleLbl.TextXAlignment = Enum.TextXAlignment.Left
+titleLbl.Parent = tbar
+
+local timeLbl = Instance.new("TextLabel")
+timeLbl.Size = UDim2.new(0, 110, 1, 0)
+timeLbl.Position = UDim2.new(1, -145, 0, 0)
+timeLbl.BackgroundTransparency = 1
+timeLbl.Text = "00:00:00"
+timeLbl.TextColor3 = TXT_DIM
+timeLbl.Font = Enum.Font.Code
+timeLbl.TextSize = 11
+timeLbl.TextXAlignment = Enum.TextXAlignment.Right
+timeLbl.Parent = tbar
+
+task.spawn(function()
+    while timeLbl.Parent do
+        timeLbl.Text = RT.clock
+        task.wait(0.5)
+    end
+end)
+
+local fpsLbl = Instance.new("TextLabel")
+fpsLbl.Size = UDim2.new(0, 60, 1, 0)
+fpsLbl.Position = UDim2.new(1, -84, 0, 0)
+fpsLbl.BackgroundTransparency = 1
+fpsLbl.Text = "60"
+fpsLbl.TextColor3 = T.b
+fpsLbl.Font = Enum.Font.Code
+fpsLbl.TextSize = 12
+fpsLbl.TextXAlignment = Enum.TextXAlignment.Right
+fpsLbl.Parent = tbar
+
+task.spawn(function()
+    while fpsLbl.Parent do
+        fpsLbl.Text = tostring(RT.fps)
+        fpsLbl.TextColor3 = RT.fps >= 50 and T.b or RT.fps >= 30 and T.c or Color3.fromRGB(255,80,80)
+        task.wait(0.5)
+    end
+end)
+
+local closeB = Instance.new("TextButton")
+closeB.Size = UDim2.new(0, 28, 0, 28)
+closeB.Position = UDim2.new(1, -38, 0.5, -14)
+closeB.BackgroundColor3 = T.card
+closeB.Text = "✕"
+closeB.TextColor3 = TXT
+closeB.Font = Enum.Font.GothamBold
+closeB.TextSize = 13
+closeB.AutoButtonColor = false
+closeB.Parent = tbar
+Instance.new("UICorner", closeB).CornerRadius = UDim.new(1, 0)
+
+local minB = Instance.new("TextButton")
+minB.Size = UDim2.new(0, 28, 0, 28)
+minB.Position = UDim2.new(1, -72, 0.5, -14)
+minB.BackgroundColor3 = T.card
+minB.Text = "—"
+minB.TextColor3 = TXT
+minB.Font = Enum.Font.GothamBold
+minB.TextSize = 12
+minB.AutoButtonColor = false
+minB.Parent = tbar
+Instance.new("UICorner", minB).CornerRadius = UDim.new(1, 0)
+
+closeB.MouseEnter:Connect(function()
+    Tween:Create(closeB, TweenInfo.new(0.15), { BackgroundColor3 = Color3.fromRGB(255,80,90) }):Play()
+end)
+closeB.MouseLeave:Connect(function()
+    Tween:Create(closeB, TweenInfo.new(0.15), { BackgroundColor3 = T.card }):Play()
+end)
+minB.MouseEnter:Connect(function()
+    Tween:Create(minB, TweenInfo.new(0.15), { BackgroundColor3 = T.a }):Play()
+end)
+minB.MouseLeave:Connect(function()
+    Tween:Create(minB, TweenInfo.new(0.15), { BackgroundColor3 = T.card }):Play()
+end)
+
+-- 拖动
 do
-    local dragging, dragStart, startPos, dragInput
-    titleBar.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1
-        or input.UserInputType == Enum.UserInputType.Touch then
-            dragging  = true
-            dragStart = input.Position
-            startPos  = panel.Position
-            input.Changed:Connect(function()
-                if input.UserInputState == Enum.UserInputState.End then
-                    dragging = false
-                end
+    local drag, ds, sp, di
+    tbar.InputBegan:Connect(function(i)
+        if i.UserInputType == Enum.UserInputType.MouseButton1
+        or i.UserInputType == Enum.UserInputType.Touch then
+            drag, ds, sp = true, i.Position, panel.Position
+            i.Changed:Connect(function()
+                if i.UserInputState == Enum.UserInputState.End then drag = false end
             end)
         end
     end)
-    titleBar.InputChanged:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseMovement
-        or input.UserInputType == Enum.UserInputType.Touch then
-            dragInput = input
-        end
+    tbar.InputChanged:Connect(function(i)
+        if i.UserInputType == Enum.UserInputType.MouseMovement
+        or i.UserInputType == Enum.UserInputType.Touch then di = i end
     end)
-    UserInputService.InputChanged:Connect(function(input)
-        if input == dragInput and dragging then
-            local d = input.Position - dragStart
-            panel.Position = UDim2.new(
-                startPos.X.Scale, startPos.X.Offset + d.X,
-                startPos.Y.Scale, startPos.Y.Offset + d.Y
-            )
+    UIS.InputChanged:Connect(function(i)
+        if i == di and drag then
+            local d = i.Position - ds
+            panel.Position = UDim2.new(sp.X.Scale, sp.X.Offset + d.X, sp.Y.Scale, sp.Y.Offset + d.Y)
         end
     end)
 end
 
-local sidebar = Instance.new("Frame")
-sidebar.Size                   = UDim2.new(0, 120, 1, -46)
-sidebar.Position               = UDim2.new(0, 0, 0, 44)
-sidebar.BackgroundTransparency = 1
-sidebar.Parent                 = panel
-
-local pageHost = Instance.new("Frame")
-pageHost.Size                   = UDim2.new(1, -132, 1, -56)
-pageHost.Position               = UDim2.new(0, 126, 0, 48)
-pageHost.BackgroundTransparency = 1
-pageHost.Parent                 = panel
-
-local tabButtons = {}
-local function newTab(text, index)
-    local btn = Instance.new("TextButton")
-    btn.Size             = UDim2.new(0.86, 0, 0, 26)
-    btn.Position         = UDim2.new(0.07, 0, 0, 4 + index * 29)
-    btn.Text             = text
-    btn.TextColor3       = Color3.fromRGB(150, 160, 180)
-    btn.BackgroundColor3 = Color3.fromRGB(22, 26, 38)
-    btn.Font             = Enum.Font.GothamBold
-    btn.TextSize         = 11
-    btn.AutoButtonColor  = false
-    btn.Parent           = sidebar
-    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
-    table.insert(tabButtons, btn)
-    return btn
-end
-
-local tabSkill    = newTab("⚡  技能", 0)
-local tabFish     = newTab("🎣  钓鱼", 1)
-local tabEsp      = newTab("🎯  ESP",  2)
-local tabTp       = newTab("🌀  传送", 3)
-local tabTheme    = newTab("🎨  主题", 4)
-local tabFun      = newTab("🎮  消遣", 5)
-local tabSettings = newTab("⚙️  设置", 6)
-local tabAI       = newTab("🤖  AI 助手", 7)
+-- 内容区
+local content = Instance.new("Frame")
+content.Size = UDim2.new(1, -32, 1, -180)
+content.Position = UDim2.new(0, 16, 0, 78)
+content.BackgroundTransparency = 1
+content.Parent = panel
 
 local function newPage()
-    local page = Instance.new("ScrollingFrame")
-    page.Size                   = UDim2.new(1, 0, 1, 0)
-    page.BackgroundTransparency = 1
-    page.BorderSizePixel        = 0
-    page.ScrollBarThickness     = 2
-    page.ScrollBarImageColor3   = CurrentTheme.accent
-    page.AutomaticCanvasSize    = Enum.AutomaticSize.Y
-    page.ScrollingDirection     = Enum.ScrollingDirection.Y
-    page.Visible                = false
-    page.Parent                 = pageHost
-    return page
+    local p = Instance.new("ScrollingFrame")
+    p.Size = UDim2.new(1, 0, 1, 0)
+    p.BackgroundTransparency = 1
+    p.BorderSizePixel = 0
+    p.ScrollBarThickness = 3
+    p.ScrollBarImageColor3 = T.a
+    p.AutomaticCanvasSize = Enum.AutomaticSize.Y
+    p.ScrollingDirection = Enum.ScrollingDirection.Y
+    p.CanvasSize = UDim2.new(0, 0, 0, 0)
+    p.Visible = false
+    p.Parent = content
+    return p
 end
 
-local pageSkill    = newPage()
-local pageFish     = newPage()
-local pageEsp      = newPage()
-local pageTp       = newPage()
-local pageTheme    = newPage()
-local pageFun      = newPage()
-local pageSettings = newPage()
-local pageAI       = newPage()
+local pages = {
+    skill = newPage(), fish = newPage(), esp = newPage(),
+    tp = newPage(), theme = newPage(), cfg = newPage(), ai = newPage(),
+}
 
-local activePage   = nil
-local activeTabBtn = nil
-local tabTween     = TweenInfo.new(0.22, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+-- ─────────────────────────────────────────────────────────────────────
+--  🎯  底部圆形导航
+-- ─────────────────────────────────────────────────────────────────────
+local TABS = {
+    { id="skill", ico="⚡", label="技能" },
+    { id="fish",  ico="🎣", label="钓鱼" },
+    { id="esp",   ico="👁", label="透视" },
+    { id="tp",    ico="🌀", label="传送" },
+    { id="theme", ico="🎨", label="主题" },
+    { id="cfg",   ico="⚙",  label="设置" },
+    { id="ai",    ico="🤖", label="AI" },
+}
 
-local function selectTab(btn, page)
-    activeTabBtn = btn
+local navBar = Instance.new("Frame")
+navBar.Size = UDim2.new(1, -32, 0, 76)
+navBar.Position = UDim2.new(0, 16, 1, -88)
+navBar.BackgroundColor3 = T.card
+navBar.BorderSizePixel = 0
+navBar.Parent = panel
+Instance.new("UICorner", navBar).CornerRadius = UDim.new(0, 18)
+
+local navStroke = Instance.new("UIStroke", navBar)
+navStroke.Color = T.b
+navStroke.Thickness = 1
+navStroke.Transparency = 0.7
+
+local navRow = Instance.new("Frame")
+navRow.Size = UDim2.new(1, 0, 1, 0)
+navRow.BackgroundTransparency = 1
+navRow.Parent = navBar
+
+local navLayout = Instance.new("UIListLayout", navRow)
+navLayout.FillDirection = Enum.FillDirection.Horizontal
+navLayout.Padding = UDim.new(0, 6)
+navLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+navLayout.VerticalAlignment = Enum.VerticalAlignment.Center
+
+local navBtns = {}
+local navRefs = {}
+
+for _, t in ipairs(TABS) do
+    local wrap = Instance.new("Frame")
+    wrap.Size = UDim2.new(0, 58, 0, 66)
+    wrap.BackgroundTransparency = 1
+    wrap.Parent = navRow
+
+    local circle = Instance.new("TextButton")
+    circle.Size = UDim2.new(0, 42, 0, 42)
+    circle.Position = UDim2.new(0, 8, 0, 4)
+    circle.BackgroundColor3 = T.bg
+    circle.Text = t.ico
+    circle.TextSize = 18
+    circle.TextColor3 = TXT_DIM
+    circle.Font = Enum.Font.GothamBold
+    circle.AutoButtonColor = false
+    circle.Parent = wrap
+    Instance.new("UICorner", circle).CornerRadius = UDim.new(1, 0)
+
+    local cStroke = Instance.new("UIStroke", circle)
+    cStroke.Color = TXT_MUTED
+    cStroke.Thickness = 1.5
+    cStroke.Transparency = 0.5
+
+    local lbl = Instance.new("TextLabel")
+    lbl.Size = UDim2.new(1, 0, 0, 14)
+    lbl.Position = UDim2.new(0, 0, 0, 48)
+    lbl.BackgroundTransparency = 1
+    lbl.Text = t.label
+    lbl.TextColor3 = TXT_MUTED
+    lbl.Font = Enum.Font.GothamBold
+    lbl.TextSize = 10
+    lbl.Parent = wrap
+
+    table.insert(navBtns, {
+        id = t.id, wrap = wrap, circle = circle,
+        stroke = cStroke, label = lbl, ico = t.ico
+    })
+    navRefs[t.id] = circle
+end
+
+local activePage, activeIdx = nil, nil
+local switchTween = TweenInfo.new(0.2, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
+
+local function selectTab(id)
     pcall(function() sClick:Play() end)
-    for _, b in ipairs(tabButtons) do
-        if b == btn then
-            TweenService:Create(b, tabTween, {
-                BackgroundColor3 = CurrentTheme.accent,
-                TextColor3       = Color3.new(1, 1, 1),
-                Size             = UDim2.new(0.92, 0, 0, 26),
-            }):Play()
-        else
-            TweenService:Create(b, tabTween, {
-                BackgroundColor3 = Color3.fromRGB(22, 26, 38),
-                TextColor3       = Color3.fromRGB(150, 160, 180),
-                Size             = UDim2.new(0.86, 0, 0, 26),
-            }):Play()
-        end
+    for i, b in ipairs(navBtns) do
+        local on = (b.id == id)
+        if on then activeIdx = i end
+        Tween:Create(b.circle, switchTween, {
+            BackgroundColor3 = on and T.a or T.bg,
+            TextColor3 = on and Color3.new(1,1,1) or TXT_DIM,
+            Size = on and UDim2.new(0, 46, 0, 46) or UDim2.new(0, 42, 0, 42),
+            Position = on and UDim2.new(0, 6, 0, 2) or UDim2.new(0, 8, 0, 4),
+        }):Play()
+        Tween:Create(b.stroke, switchTween, {
+            Color = on and T.a or TXT_MUTED,
+            Transparency = on and 0 or 0.5,
+            Thickness = on and 2 or 1.5,
+        }):Play()
+        Tween:Create(b.label, switchTween, {
+            TextColor3 = on and T.a or TXT_MUTED,
+        }):Play()
     end
-    if activePage and activePage ~= page then activePage.Visible = false end
-    page.Visible = true
-    activePage   = page
+    if activePage and activePage ~= pages[id] then
+        activePage.Visible = false
+    end
+    pages[id].Visible = true
+    activePage = pages[id]
 end
 
-local themedToggles     = {}
-local themedAccentTexts = {}
+for id, btn in pairs(navRefs) do
+    btn.MouseButton1Click:Connect(function() selectTab(id) end)
+end
 
-local function newToggle(parent, y, label, key, sfx)
-    local btn = Instance.new("TextButton")
-    btn.Size             = UDim2.new(0.95, 0, 0, 32)
-    btn.Position         = UDim2.new(0.025, 0, 0, y)
-    btn.BackgroundColor3 = Color3.fromRGB(26, 32, 46)
-    btn.TextColor3       = Color3.fromRGB(200, 210, 230)
-    btn.Font             = Enum.Font.GothamBold
-    btn.TextSize         = 11
-    btn.Text             = label .. "：关闭"
-    btn.AutoButtonColor  = false
-    btn.Parent           = parent
-    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
-    local st = Instance.new("UIStroke", btn)
-    st.Color, st.Thickness = Color3.fromRGB(50, 60, 80), 1
+-- ─────────────────────────────────────────────────────────────────────
+--  🧩  通用工厂
+-- ─────────────────────────────────────────────────────────────────────
+local themedToggleList = {}
+local themedTitleList  = {}
 
-    btn.MouseButton1Click:Connect(function()
-        if sfx then pcall(function() sfx:Play() end) end
-        State[key] = not State[key]
-        btn.Text = label .. "：" .. (State[key] and "开启" or "关闭")
-        btn.BackgroundColor3 = State[key] and CurrentTheme.accent or Color3.fromRGB(26, 32, 46)
-        btn.TextColor3       = State[key] and Color3.fromRGB(230, 255, 255) or Color3.fromRGB(200, 210, 230)
+local function header(page, ico, title, subtitle)
+    local f = Instance.new("Frame")
+    f.Size = UDim2.new(1, 0, 0, 48)
+    f.BackgroundTransparency = 1
+    f.Parent = page
+
+    local icoL = Instance.new("TextLabel")
+    icoL.Size = UDim2.new(0, 36, 0, 36)
+    icoL.Position = UDim2.new(0, 0, 0, 4)
+    icoL.BackgroundColor3 = T.card
+    icoL.Text = ico
+    icoL.TextSize = 20
+    icoL.Font = Enum.Font.GothamBold
+    icoL.BorderSizePixel = 0
+    icoL.Parent = f
+    Instance.new("UICorner", icoL).CornerRadius = UDim.new(0, 12)
+
+    local tL = Instance.new("TextLabel")
+    tL.Size = UDim2.new(1, -50, 0, 22)
+    tL.Position = UDim2.new(0, 48, 0, 6)
+    tL.BackgroundTransparency = 1
+    tL.Text = title
+    tL.TextColor3 = TXT
+    tL.Font = Enum.Font.GothamBold
+    tL.TextSize = 15
+    tL.TextXAlignment = Enum.TextXAlignment.Left
+    tL.Parent = f
+
+    local sL = Instance.new("TextLabel")
+    sL.Size = UDim2.new(1, -50, 0, 16)
+    sL.Position = UDim2.new(0, 48, 0, 26)
+    sL.BackgroundTransparency = 1
+    sL.Text = subtitle
+    sL.TextColor3 = TXT_MUTED
+    sL.Font = Enum.Font.Code
+    sL.TextSize = 10
+    sL.TextXAlignment = Enum.TextXAlignment.Left
+    sL.Parent = f
+    table.insert(themedTitleList, tL)
+    return 52
+end
+
+local function toggle(parent, y, ico, label, key, sfxRef)
+    local row = Instance.new("TextButton")
+    row.Size = UDim2.new(1, 0, 0, 44)
+    row.Position = UDim2.new(0, 0, 0, y)
+    row.BackgroundColor3 = T.card
+    row.BorderSizePixel = 0
+    row.Text = ""
+    row.AutoButtonColor = false
+    row.Parent = parent
+    Instance.new("UICorner", row).CornerRadius = UDim.new(0, 14)
+
+    local rStroke = Instance.new("UIStroke", row)
+    rStroke.Color = T.b
+    rStroke.Thickness = 1
+    rStroke.Transparency = 0.7
+
+    local ic = Instance.new("TextLabel")
+    ic.Size = UDim2.new(0, 30, 1, 0)
+    ic.Position = UDim2.new(0, 10, 0, 0)
+    ic.BackgroundTransparency = 1
+    ic.Text = ico
+    ic.TextSize = 16
+    ic.Font = Enum.Font.GothamBold
+    ic.Parent = row
+
+    local lb = Instance.new("TextLabel")
+    lb.Size = UDim2.new(1, -110, 1, 0)
+    lb.Position = UDim2.new(0, 44, 0, 0)
+    lb.BackgroundTransparency = 1
+    lb.Text = label
+    lb.TextColor3 = TXT
+    lb.Font = Enum.Font.GothamBold
+    lb.TextSize = 13
+    lb.TextXAlignment = Enum.TextXAlignment.Left
+    lb.Parent = row
+
+    local track = Instance.new("Frame")
+    track.Size = UDim2.new(0, 42, 0, 22)
+    track.Position = UDim2.new(1, -52, 0.5, -11)
+    track.BackgroundColor3 = T.bg
+    track.BorderSizePixel = 0
+    track.Parent = row
+    Instance.new("UICorner", track).CornerRadius = UDim.new(1, 0)
+    local tStroke = Instance.new("UIStroke", track)
+    tStroke.Color = TXT_MUTED
+    tStroke.Thickness = 1.5
+    tStroke.Transparency = 0.5
+
+    local knob = Instance.new("Frame")
+    knob.Size = UDim2.new(0, 16, 0, 16)
+    knob.Position = UDim2.new(0, 3, 0.5, -8)
+    knob.BackgroundColor3 = TXT_DIM
+    knob.BorderSizePixel = 0
+    knob.Parent = track
+    Instance.new("UICorner", knob).CornerRadius = UDim.new(1, 0)
+
+    row.MouseEnter:Connect(function()
+        Tween:Create(row, TweenInfo.new(0.15), { BackgroundColor3 = T.card:Lerp(T.a, 0.15) }):Play()
+        Tween:Create(rStroke, TweenInfo.new(0.15), { Transparency = 0.4 }):Play()
     end)
-    table.insert(themedToggles, { btn = btn, key = key, label = label })
-    return btn
+    row.MouseLeave:Connect(function()
+        if not S[key] then
+            Tween:Create(row, TweenInfo.new(0.15), { BackgroundColor3 = T.card }):Play()
+            Tween:Create(rStroke, TweenInfo.new(0.15), { Transparency = 0.7 }):Play()
+        end
+    end)
+
+    local function refresh()
+        local on = S[key]
+        Tween:Create(track, TweenInfo.new(0.2, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+            BackgroundColor3 = on and T.a or T.bg,
+        }):Play()
+        Tween:Create(tStroke, TweenInfo.new(0.2), {
+            Color = on and T.a or TXT_MUTED,
+            Transparency = on and 0 or 0.5,
+        }):Play()
+        Tween:Create(knob, TweenInfo.new(0.2, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+            Position = on and UDim2.new(1, -19, 0.5, -8) or UDim2.new(0, 3, 0.5, -8),
+            BackgroundColor3 = on and Color3.new(1,1,1) or TXT_DIM,
+        }):Play()
+    end
+
+    row.MouseButton1Click:Connect(function()
+        if sfxRef then pcall(function() sfxRef:Play() end) end
+        S[key] = not S[key]
+        refresh()
+    end)
+
+    table.insert(themedToggleList, { row=row, key=key, track=track, stroke=tStroke, knob=knob })
+    return row
 end
 
 local function setToggleState(key, value)
-    State[key] = value
-    for _, item in ipairs(themedToggles) do
+    S[key] = value
+    for _, item in ipairs(themedToggleList) do
         if item.key == key then
-            item.btn.Text = item.label .. "：" .. (value and "开启" or "关闭")
-            item.btn.BackgroundColor3 = value and CurrentTheme.accent or Color3.fromRGB(26, 32, 46)
-            item.btn.TextColor3 = value and Color3.fromRGB(230, 255, 255) or Color3.fromRGB(200, 210, 230)
+            local on = value
+            Tween:Create(item.track, TweenInfo.new(0.2), {
+                BackgroundColor3 = on and T.a or T.bg,
+            }):Play()
+            Tween:Create(item.stroke, TweenInfo.new(0.2), {
+                Color = on and T.a or TXT_MUTED,
+                Transparency = on and 0 or 0.5,
+            }):Play()
+            Tween:Create(item.knob, TweenInfo.new(0.2), {
+                Position = on and UDim2.new(1, -19, 0.5, -8) or UDim2.new(0, 3, 0.5, -8),
+                BackgroundColor3 = on and Color3.new(1,1,1) or TXT_DIM,
+            }):Play()
             break
         end
     end
 end
 
-local function newAction(parent, y, label, color, onClick)
+local function action(parent, y, ico, label, colorFn, onClick)
     local btn = Instance.new("TextButton")
-    btn.Size             = UDim2.new(0.95, 0, 0, 32)
-    btn.Position         = UDim2.new(0.025, 0, 0, y)
-    btn.BackgroundColor3 = color or Color3.fromRGB(30, 40, 60)
-    btn.TextColor3       = Color3.new(1, 1, 1)
-    btn.Font             = Enum.Font.GothamBold
-    btn.TextSize         = 11
-    btn.Text             = label
-    btn.AutoButtonColor  = false
-    btn.Parent           = parent
-    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
+    btn.Size = UDim2.new(1, 0, 0, 44)
+    btn.Position = UDim2.new(0, 0, 0, y)
+    btn.BackgroundColor3 = colorFn or T.card
+    btn.BorderSizePixel = 0
+    btn.Text = ""
+    btn.AutoButtonColor = false
+    btn.Parent = parent
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 14)
+
+    local bStroke = Instance.new("UIStroke", btn)
+    bStroke.Color = T.b
+    bStroke.Thickness = 1
+    bStroke.Transparency = 0.6
+
+    local ic = Instance.new("TextLabel")
+    ic.Size = UDim2.new(0, 30, 1, 0)
+    ic.Position = UDim2.new(0, 10, 0, 0)
+    ic.BackgroundTransparency = 1
+    ic.Text = ico
+    ic.TextSize = 16
+    ic.Font = Enum.Font.GothamBold
+    ic.Parent = btn
+
+    local lb = Instance.new("TextLabel")
+    lb.Size = UDim2.new(1, -50, 1, 0)
+    lb.Position = UDim2.new(0, 44, 0, 0)
+    lb.BackgroundTransparency = 1
+    lb.Text = label
+    lb.TextColor3 = TXT
+    lb.Font = Enum.Font.GothamBold
+    lb.TextSize = 13
+    lb.TextXAlignment = Enum.TextXAlignment.Left
+    lb.Parent = btn
+
+    local ar = Instance.new("TextLabel")
+    ar.Size = UDim2.new(0, 20, 1, 0)
+    ar.Position = UDim2.new(1, -28, 0, 0)
+    ar.BackgroundTransparency = 1
+    ar.Text = "›"
+    ar.TextColor3 = T.a
+    ar.Font = Enum.Font.GothamBold
+    ar.TextSize = 20
+    ar.Parent = btn
+
+    btn.MouseEnter:Connect(function()
+        Tween:Create(btn, TweenInfo.new(0.15), { BackgroundColor3 = T.card:Lerp(T.a, 0.2) }):Play()
+        Tween:Create(bStroke, TweenInfo.new(0.15), { Transparency = 0.2 }):Play()
+    end)
+    btn.MouseLeave:Connect(function()
+        Tween:Create(btn, TweenInfo.new(0.15), { BackgroundColor3 = colorFn or T.card }):Play()
+        Tween:Create(bStroke, TweenInfo.new(0.15), { Transparency = 0.6 }):Play()
+    end)
+    btn.MouseButton1Down:Connect(function()
+        Tween:Create(btn, TweenInfo.new(0.08), { Size = UDim2.new(0.98, 0, 0, 42) }):Play()
+    end)
+    btn.MouseButton1Up:Connect(function()
+        Tween:Create(btn, TweenInfo.new(0.14, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
+            { Size = UDim2.new(1, 0, 0, 44) }):Play()
+    end)
     btn.MouseButton1Click:Connect(function()
         if onClick then pcall(onClick) end
     end)
     return btn
 end
 
--- 技能页
-newToggle(pageSkill, 5,   "自动全技能（Z X C V）", "AutoSkill", sSkill)
-newToggle(pageSkill, 45,  "自动技能 [Z]",           "SkillZ",    sSkill)
-newToggle(pageSkill, 82,  "自动技能 [X]",           "SkillX",    sSkill)
-newToggle(pageSkill, 119, "自动技能 [C]",           "SkillC",    sSkill)
-newToggle(pageSkill, 156, "自动技能 [V]",           "SkillV",    sSkill)
+local function intervalRow(parent, y, ico, labelText, defaultVal, minV, maxV, applyFn)
+    local row = Instance.new("Frame")
+    row.Size = UDim2.new(1, 0, 0, 44)
+    row.Position = UDim2.new(0, 0, 0, y)
+    row.BackgroundColor3 = T.card
+    row.BorderSizePixel = 0
+    row.Parent = parent
+    Instance.new("UICorner", row).CornerRadius = UDim.new(0, 14)
+    local rS = Instance.new("UIStroke", row)
+    rS.Color = T.b; rS.Thickness = 1; rS.Transparency = 0.6
 
--- 钓鱼页
-newToggle(pageFish, 5,  "锁定鱼条（居中）", "BarLock",  sLock)
-newToggle(pageFish, 42, "自动卖鱼",         "AutoSell", sSell)
-
-local sellBtn = newAction(pageFish, 79, "💰 立即卖出所有鱼", Color3.fromRGB(30, 45, 65), function()
-    pcall(function() sSell:Play() end)
-    local ok = false
-    local events = ReplicatedStorage:FindFirstChild("Events")
-    if events then
-        local sell = events:FindFirstChild("SellFish")
-        if sell then sell:FireServer("All") ok = true end
-    end
-    if not ok then
-        local sell = ReplicatedStorage:FindFirstChild("SellFish")
-        if sell then sell:FireServer("All") ok = true end
-    end
-    sellBtn.Text = ok and "✔ 已卖出！" or "✖ 未找到卖鱼接口"
-    task.wait(0.7)
-    sellBtn.Text = "💰 立即卖出所有鱼"
-end)
-
-local intervalLabel = Instance.new("TextLabel")
-intervalLabel.Size                   = UDim2.new(0.34, 0, 0, 32)
-intervalLabel.Position               = UDim2.new(0.025, 0, 0, 116)
-intervalLabel.BackgroundColor3       = Color3.fromRGB(20, 26, 38)
-intervalLabel.TextColor3             = Color3.fromRGB(180, 200, 220)
-intervalLabel.Font                   = Enum.Font.GothamBold
-intervalLabel.TextSize               = 11
-intervalLabel.Text                   = "卖出间隔（秒）"
-intervalLabel.Parent                 = pageFish
-Instance.new("UICorner", intervalLabel).CornerRadius = UDim.new(0, 6)
-
-local intervalBox = Instance.new("TextBox")
-intervalBox.Size             = UDim2.new(0.35, 0, 0, 32)
-intervalBox.Position         = UDim2.new(0.39, 0, 0, 116)
-intervalBox.BackgroundColor3 = Color3.fromRGB(26, 32, 46)
-intervalBox.TextColor3       = Color3.fromRGB(230, 255, 255)
-intervalBox.Font             = Enum.Font.GothamBold
-intervalBox.TextSize         = 12
-intervalBox.Text             = tostring(CFG.SELL_INTERVAL)
-intervalBox.PlaceholderText  = "秒"
-intervalBox.ClearTextOnFocus = false
-intervalBox.Parent           = pageFish
-Instance.new("UICorner", intervalBox).CornerRadius = UDim.new(0, 6)
-local intervalStroke = Instance.new("UIStroke", intervalBox)
-intervalStroke.Color        = CurrentTheme.accent
-intervalStroke.Thickness    = 1
-intervalStroke.Transparency = 0.5
-
-local applyBtn = Instance.new("TextButton")
-applyBtn.Size             = UDim2.new(0.22, 0, 0, 32)
-applyBtn.Position         = UDim2.new(0.755, 0, 0, 116)
-applyBtn.BackgroundColor3 = Color3.fromRGB(0, 150, 100)
-applyBtn.TextColor3       = Color3.new(1, 1, 1)
-applyBtn.Font             = Enum.Font.GothamBold
-applyBtn.TextSize         = 11
-applyBtn.Text             = "应用"
-applyBtn.AutoButtonColor  = false
-applyBtn.Parent           = pageFish
-Instance.new("UICorner", applyBtn).CornerRadius = UDim.new(0, 6)
-
-local function applyInterval()
-    local n = tonumber(intervalBox.Text)
-    if n and n >= CFG.SELL_MIN and n <= CFG.SELL_MAX then
-        CFG.SELL_INTERVAL = n
-        intervalBox.Text = tostring(n)
-        applyBtn.Text = "已应用"
-        applyBtn.BackgroundColor3 = Color3.fromRGB(0, 210, 140)
-        task.delay(0.9, function()
-            applyBtn.Text = "应用"
-            applyBtn.BackgroundColor3 = Color3.fromRGB(0, 150, 100)
-        end)
-    else
-        intervalBox.Text = tostring(CFG.SELL_INTERVAL)
-        applyBtn.Text = "无效值"
-        applyBtn.BackgroundColor3 = Color3.fromRGB(180, 40, 60)
-        task.delay(0.9, function()
-            applyBtn.Text = "应用"
-            applyBtn.BackgroundColor3 = Color3.fromRGB(0, 150, 100)
-        end)
-    end
-end
-
-applyBtn.MouseButton1Click:Connect(function()
-    pcall(function() sClick:Play() end)
-    applyInterval()
-end)
-intervalBox.FocusLost:Connect(function() applyInterval() end)
-
--- ESP 页
-newToggle(pageEsp, 5,  "显示玩家位置（Player ESP）", "PlayerESP", sClick)
-newToggle(pageEsp, 42, "显示 NPC 位置（NPC ESP）",   "NpcESP",    sClick)
-
-local espInfo = Instance.new("TextLabel")
-espInfo.Size                   = UDim2.new(0.95, 0, 0, 100)
-espInfo.Position               = UDim2.new(0.025, 0, 0, 85)
-espInfo.BackgroundColor3       = Color3.fromRGB(20, 26, 38)
-espInfo.TextColor3             = Color3.fromRGB(160, 180, 200)
-espInfo.Font                   = Enum.Font.Gotham
-espInfo.TextSize               = 10
-espInfo.TextWrapped            = true
-espInfo.TextXAlignment         = Enum.TextXAlignment.Left
-espInfo.TextYAlignment         = Enum.TextYAlignment.Top
-espInfo.Text = "  玩家 ESP：绿色标签\n  NPC ESP：红色标签\n  仅任务/刷新 NPC\n  相似名自动去重\n  超过 500m 自动隐藏"
-espInfo.Parent                 = pageEsp
-Instance.new("UICorner", espInfo).CornerRadius = UDim.new(0, 6)
-
--- 主题页
-local themeBtns = {}
-for i, th in ipairs(THEMES) do
-    local btn = Instance.new("TextButton")
-    btn.Size             = UDim2.new(0.95, 0, 0, 32)
-    btn.Position         = UDim2.new(0.025, 0, 0, 5 + (i - 1) * 37)
-    btn.BackgroundColor3 = th.bg
-    btn.TextColor3       = th.accent
-    btn.Font             = Enum.Font.GothamBold
-    btn.TextSize         = 12
-    btn.Text             = "●  " .. th.name
-    btn.AutoButtonColor  = false
-    btn.Parent           = pageTheme
-    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
-    local st = Instance.new("UIStroke", btn)
-    st.Color, st.Thickness, st.Transparency = th.accent, 1.2, 0.35
-    table.insert(themeBtns, btn)
-end
-
-local function applyTheme(theme)
-    CurrentTheme.bg     = theme.bg
-    CurrentTheme.accent = theme.accent
-
-    TweenService:Create(panel, TweenInfo.new(0.25), { BackgroundColor3 = theme.bg }):Play()
-    TweenService:Create(panelStroke, TweenInfo.new(0.25), { Color = theme.accent }):Play()
-    TweenService:Create(titleLabel, TweenInfo.new(0.25), { TextColor3 = theme.accent }):Play()
-
-    for _, b in ipairs(tabButtons) do
-        if b == activeTabBtn then
-            TweenService:Create(b, TweenInfo.new(0.25), { BackgroundColor3 = theme.accent }):Play()
-        end
-    end
-    for _, item in ipairs(themedToggles) do
-        if State[item.key] then
-            TweenService:Create(item.btn, TweenInfo.new(0.25), { BackgroundColor3 = theme.accent }):Play()
-        end
-    end
-    for _, obj in ipairs(themedAccentTexts) do
-        if obj and obj.Parent then
-            TweenService:Create(obj, TweenInfo.new(0.25), { TextColor3 = theme.accent }):Play()
-        end
-    end
-    if intervalStroke then
-        TweenService:Create(intervalStroke, TweenInfo.new(0.25), { Color = theme.accent }):Play()
-    end
-    for _, page in ipairs({pageSkill, pageFish, pageEsp, pageTp, pageTheme, pageFun, pageSettings, pageAI}) do
-        page.ScrollBarImageColor3 = theme.accent
-    end
-end
-
-for i, btn in ipairs(themeBtns) do
-    btn.MouseButton1Click:Connect(function()
-        pcall(function() sClick:Play() end)
-        applyTheme(THEMES[i])
-    end)
-end
-
--- 消遣页
-local FunState = {
-    Guess = { target = math.random(1, 100), tries = 0, done = false },
-    RPS   = { playerScore = 0, cpuScore = 0 },
-    React = { mode = "idle", token = 0, readyAt = 0 },
-}
-
-local function makeFunTitle(parent, y, text)
     local lbl = Instance.new("TextLabel")
-    lbl.Size                   = UDim2.new(1, -16, 0, 20)
-    lbl.Position               = UDim2.new(0, 8, 0, y)
+    lbl.Size = UDim2.new(0.55, 0, 1, 0)
+    lbl.Position = UDim2.new(0, 14, 0, 0)
     lbl.BackgroundTransparency = 1
-    lbl.Text                   = text
-    lbl.TextColor3             = CurrentTheme.accent
-    lbl.Font                   = Enum.Font.GothamBold
-    lbl.TextSize               = 12
-    lbl.TextXAlignment         = Enum.TextXAlignment.Left
-    lbl.Parent                 = parent
-    table.insert(themedAccentTexts, lbl)
-    return lbl
-end
+    lbl.Text = ico .. "  " .. labelText
+    lbl.TextColor3 = TXT
+    lbl.Font = Enum.Font.GothamBold
+    lbl.TextSize = 12
+    lbl.TextXAlignment = Enum.TextXAlignment.Left
+    lbl.Parent = row
 
-local function makeFunCard(y, height)
-    local card = Instance.new("Frame")
-    card.Size             = UDim2.new(0.95, 0, 0, height)
-    card.Position         = UDim2.new(0.025, 0, 0, y)
-    card.BackgroundColor3 = Color3.fromRGB(20, 26, 38)
-    card.BorderSizePixel  = 0
-    card.Parent           = pageFun
-    Instance.new("UICorner", card).CornerRadius = UDim.new(0, 6)
-    return card
-end
-
-do
-    local card = makeFunCard(5, 112)
-    makeFunTitle(card, 4, "🎲  猜数字（1 - 100）")
     local box = Instance.new("TextBox")
-    box.Size             = UDim2.new(0.5, 0, 0, 28)
-    box.Position         = UDim2.new(0, 8, 0, 30)
-    box.BackgroundColor3 = Color3.fromRGB(26, 32, 46)
-    box.TextColor3       = Color3.fromRGB(230, 255, 255)
-    box.PlaceholderColor3 = Color3.fromRGB(120, 140, 160)
-    box.Font             = Enum.Font.GothamBold
-    box.TextSize         = 12
-    box.PlaceholderText  = "输入数字"
+    box.Size = UDim2.new(0, 60, 0, 30)
+    box.Position = UDim2.new(1, -132, 0.5, -15)
+    box.BackgroundColor3 = T.bg
+    box.TextColor3 = T.a
+    box.Font = Enum.Font.GothamBold
+    box.TextSize = 13
+    box.Text = tostring(defaultVal)
     box.ClearTextOnFocus = false
-    box.Parent           = card
-    Instance.new("UICorner", box).CornerRadius = UDim.new(0, 6)
+    box.BorderSizePixel = 0
+    box.Parent = row
+    Instance.new("UICorner", box).CornerRadius = UDim.new(0, 8)
+    local bS = Instance.new("UIStroke", box)
+    bS.Color = T.a; bS.Thickness = 1; bS.Transparency = 0.5
 
-    local goBtn = Instance.new("TextButton")
-    goBtn.Size             = UDim2.new(0.42, 0, 0, 28)
-    goBtn.Position         = UDim2.new(0.55, 0, 0, 30)
-    goBtn.BackgroundColor3 = Color3.fromRGB(0, 130, 150)
-    goBtn.TextColor3       = Color3.new(1, 1, 1)
-    goBtn.Font             = Enum.Font.GothamBold
-    goBtn.TextSize         = 11
-    goBtn.Text             = "猜！"
-    goBtn.AutoButtonColor  = false
-    goBtn.Parent           = card
-    Instance.new("UICorner", goBtn).CornerRadius = UDim.new(0, 6)
-
-    local result = Instance.new("TextLabel")
-    result.Size                   = UDim2.new(1, -16, 0, 18)
-    result.Position               = UDim2.new(0, 8, 0, 62)
-    result.BackgroundTransparency = 1
-    result.Text                   = "尝试次数：0"
-    result.TextColor3             = Color3.fromRGB(180, 200, 220)
-    result.Font                   = Enum.Font.Gotham
-    result.TextSize               = 11
-    result.TextXAlignment         = Enum.TextXAlignment.Left
-    result.Parent                 = card
-
-    local restart = Instance.new("TextButton")
-    restart.Size             = UDim2.new(0.95, 0, 0, 22)
-    restart.Position         = UDim2.new(0.025, 0, 0, 84)
-    restart.BackgroundColor3 = Color3.fromRGB(55, 30, 60)
-    restart.TextColor3       = Color3.fromRGB(230, 200, 240)
-    restart.Font             = Enum.Font.GothamBold
-    restart.TextSize         = 10
-    restart.Text             = "🔄  重新开始"
-    restart.AutoButtonColor  = false
-    restart.Parent           = card
-    Instance.new("UICorner", restart).CornerRadius = UDim.new(0, 5)
-
-    local function reset()
-        FunState.Guess.target = math.random(1, 100)
-        FunState.Guess.tries  = 0
-        FunState.Guess.done   = false
-        result.Text = "尝试次数：0"
-        result.TextColor3 = Color3.fromRGB(180, 200, 220)
-        box.Text = ""
-    end
+    local okBtn = Instance.new("TextButton")
+    okBtn.Size = UDim2.new(0, 60, 0, 30)
+    okBtn.Position = UDim2.new(1, -64, 0.5, -15)
+    okBtn.BackgroundColor3 = T.a
+    okBtn.Text = "OK"
+    okBtn.TextColor3 = Color3.new(1,1,1)
+    okBtn.Font = Enum.Font.GothamBold
+    okBtn.TextSize = 11
+    okBtn.AutoButtonColor = false
+    okBtn.BorderSizePixel = 0
+    okBtn.Parent = row
+    Instance.new("UICorner", okBtn).CornerRadius = UDim.new(0, 8)
 
     local function submit()
-        if FunState.Guess.done then return end
         local n = tonumber(box.Text)
-        if not n or n < 1 or n > 100 then
-            result.Text = "请输入 1 - 100 之间的整数"
-            result.TextColor3 = Color3.fromRGB(255, 150, 100)
-            return
-        end
-        FunState.Guess.tries = FunState.Guess.tries + 1
-        local diff = n - FunState.Guess.target
-        if diff == 0 then
-            FunState.Guess.done = true
-            result.Text = "🎉 猜对了！用了 " .. FunState.Guess.tries .. " 次"
-            result.TextColor3 = Color3.fromRGB(0, 255, 130)
-            pcall(function() sWin:Play() end)
-        elseif math.abs(diff) <= 5 then
-            result.Text = (diff > 0 and "🔥 很接近了，往小猜" or "🔥 很接近了，往大猜")
-                .. "（第 " .. FunState.Guess.tries .. " 次）"
-            result.TextColor3 = Color3.fromRGB(255, 200, 80)
+        if n and n >= minV and n <= maxV then
+            applyFn(n)
+            box.Text = tostring(n)
+            okBtn.Text = "✓"
+            task.delay(0.8, function() okBtn.Text = "OK" end)
         else
-            result.Text = (diff > 0 and "⬇ 太大了" or "⬆ 太小了")
-                .. "（第 " .. FunState.Guess.tries .. " 次）"
-            result.TextColor3 = Color3.fromRGB(200, 200, 200)
+            box.Text = tostring(defaultVal)
+            okBtn.Text = "✕"
+            okBtn.BackgroundColor3 = Color3.fromRGB(255,80,80)
+            task.delay(0.8, function()
+                okBtn.Text = "OK"
+                okBtn.BackgroundColor3 = T.a
+            end)
         end
-        box.Text = ""
     end
 
-    goBtn.MouseButton1Click:Connect(function() pcall(function() sClick:Play() end); submit() end)
-    box.FocusLost:Connect(function(enter) if enter then submit() end end)
-    restart.MouseButton1Click:Connect(function() pcall(function() sClick:Play() end); reset() end)
-end
-
-do
-    local card = makeFunCard(122, 112)
-    makeFunTitle(card, 4, "✂️  石头剪刀布")
-    local choices = {
-        { label = "石头", emoji = "✊" },
-        { label = "剪刀", emoji = "✌️" },
-        { label = "布",   emoji = "✋" },
-    }
-    local btns = {}
-    for i, ch in ipairs(choices) do
-        local btn = Instance.new("TextButton")
-        btn.Size             = UDim2.new(0.3, 0, 0, 26)
-        btn.Position         = UDim2.new(0.025 + (i - 1) * 0.325, 0, 0, 30)
-        btn.BackgroundColor3 = Color3.fromRGB(35, 45, 60)
-        btn.TextColor3       = Color3.new(1, 1, 1)
-        btn.Font             = Enum.Font.GothamBold
-        btn.TextSize         = 11
-        btn.Text             = ch.emoji .. " " .. ch.label
-        btn.AutoButtonColor  = false
-        btn.Parent           = card
-        Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 5)
-        table.insert(btns, btn)
-    end
-
-    local result = Instance.new("TextLabel")
-    result.Size                   = UDim2.new(1, -16, 0, 18)
-    result.Position               = UDim2.new(0, 8, 0, 62)
-    result.BackgroundTransparency = 1
-    result.Text                   = "点击出拳，与电脑对战"
-    result.TextColor3             = Color3.fromRGB(180, 200, 220)
-    result.Font                   = Enum.Font.Gotham
-    result.TextSize               = 11
-    result.TextXAlignment         = Enum.TextXAlignment.Left
-    result.Parent                 = card
-
-    local score = Instance.new("TextLabel")
-    score.Size                   = UDim2.new(1, -16, 0, 18)
-    score.Position               = UDim2.new(0, 8, 0, 84)
-    score.BackgroundTransparency = 1
-    score.Text                   = "你 0 : 0 电脑"
-    score.TextColor3             = CurrentTheme.accent
-    score.Font                   = Enum.Font.GothamBold
-    score.TextSize               = 11
-    score.TextXAlignment         = Enum.TextXAlignment.Left
-    score.Parent                 = card
-    table.insert(themedAccentTexts, score)
-
-    local function play(playerIdx)
-        local cpuIdx = math.random(1, 3)
-        local pName = choices[playerIdx].emoji .. choices[playerIdx].label
-        local cName = choices[cpuIdx].emoji .. choices[cpuIdx].label
-        if playerIdx == cpuIdx then
-            result.Text = "平局！双方都出 " .. pName
-            result.TextColor3 = Color3.fromRGB(200, 200, 200)
-        else
-            local win = (playerIdx == 1 and cpuIdx == 2)
-                     or (playerIdx == 2 and cpuIdx == 3)
-                     or (playerIdx == 3 and cpuIdx == 1)
-            if win then
-                FunState.RPS.playerScore = FunState.RPS.playerScore + 1
-                result.Text = "🎉 你赢了！" .. pName .. " 击败 " .. cName
-                result.TextColor3 = Color3.fromRGB(0, 255, 130)
-                pcall(function() sWin:Play() end)
-            else
-                FunState.RPS.cpuScore = FunState.RPS.cpuScore + 1
-                result.Text = "😵 你输了！" .. cName .. " 击败 " .. pName
-                result.TextColor3 = Color3.fromRGB(255, 100, 100)
-                pcall(function() sLose:Play() end)
-            end
-        end
-        score.Text = "你 " .. FunState.RPS.playerScore .. " : " .. FunState.RPS.cpuScore .. " 电脑"
-    end
-
-    for i, btn in ipairs(btns) do
-        btn.MouseButton1Click:Connect(function()
-            pcall(function() sClick:Play() end)
-            play(i)
-        end)
-    end
-end
-
-do
-    local card = makeFunCard(239, 112)
-    makeFunTitle(card, 4, "⚡  反应测试")
-    local area = Instance.new("TextButton")
-    area.Size             = UDim2.new(0.95, 0, 0, 68)
-    area.Position         = UDim2.new(0.025, 0, 0, 30)
-    area.BackgroundColor3 = Color3.fromRGB(60, 60, 80)
-    area.TextColor3       = Color3.new(1, 1, 1)
-    area.Font             = Enum.Font.GothamBold
-    area.TextSize         = 14
-    area.Text             = "点击开始测试"
-    area.AutoButtonColor  = false
-    area.Parent           = card
-    Instance.new("UICorner", area).CornerRadius = UDim.new(0, 6)
-
-    local function setIdle()
-        FunState.React.mode  = "idle"
-        FunState.React.token = FunState.React.token + 1
-        area.BackgroundColor3 = Color3.fromRGB(60, 60, 80)
-        area.Text             = "点击开始测试"
-    end
-
-    local function startWait()
-        FunState.React.mode  = "waiting"
-        FunState.React.token = FunState.React.token + 1
-        local myToken = FunState.React.token
-        area.BackgroundColor3 = Color3.fromRGB(160, 40, 60)
-        area.Text             = "等待变绿…"
-        task.spawn(function()
-            task.wait(1 + math.random() * 3)
-            if FunState.React.token ~= myToken then return end
-            if FunState.React.mode ~= "waiting" then return end
-            FunState.React.mode    = "ready"
-            FunState.React.readyAt = tick()
-            area.BackgroundColor3 = Color3.fromRGB(0, 200, 100)
-            area.Text             = "点！"
-        end)
-    end
-
-    area.MouseButton1Click:Connect(function()
+    okBtn.MouseButton1Click:Connect(function()
         pcall(function() sClick:Play() end)
-        local mode = FunState.React.mode
-        if mode == "idle" then
-            startWait()
-        elseif mode == "waiting" then
-            FunState.React.token = FunState.React.token + 1
-            FunState.React.mode  = "done"
-            area.BackgroundColor3 = Color3.fromRGB(180, 60, 60)
-            area.Text             = "❌ 太早了！点击重来"
-            pcall(function() sLose:Play() end)
-            task.delay(1.2, function()
-                if FunState.React.mode == "done" then setIdle() end
-            end)
-        elseif mode == "ready" then
-            local ms = (tick() - FunState.React.readyAt) * 1000
-            FunState.React.mode = "done"
-            local grade
-            if ms < 200 then grade = "⚡ 神级反应"
-            elseif ms < 280 then grade = "✨ 非常快"
-            elseif ms < 380 then grade = "👍 还不错"
-            else grade = "😅 再接再厉" end
-            area.BackgroundColor3 = Color3.fromRGB(30, 80, 160)
-            area.Text = string.format("%.0f ms  %s", ms, grade)
-            pcall(function() sWin:Play() end)
-            task.delay(1.6, function()
-                if FunState.React.mode == "done" then setIdle() end
-            end)
-        end
+        submit()
     end)
-end
+    box.FocusLost:Connect(function() submit() end)
 
--- 设置页
-local scaleLabel, scaleBox, scaleApplyBtn
-
-local function applyUiScale(scale, silent)
-    scale = math.clamp(scale, CFG.UI_SCALE_MIN, CFG.UI_SCALE_MAX)
-    CFG.UI_SCALE = scale
-    TweenService:Create(panelScale, TweenInfo.new(0.2, Enum.EasingStyle.Quad), { Scale = scale }):Play()
-    if scaleLabel then
-        scaleLabel.Text = string.format("当前缩放：%d%%", math.floor(scale * 100 + 0.5))
-    end
-    if scaleBox then
-        scaleBox.Text = string.format("%.2f", scale)
-    end
-    if not silent and scaleApplyBtn then
-        scaleApplyBtn.Text = "已应用"
-        scaleApplyBtn.BackgroundColor3 = Color3.fromRGB(0, 210, 140)
-        task.delay(0.9, function()
-            scaleApplyBtn.Text = "应用"
-            scaleApplyBtn.BackgroundColor3 = Color3.fromRGB(0, 150, 100)
-        end)
-    end
-end
-
-local settingsTitle1 = Instance.new("TextLabel")
-settingsTitle1.Size                   = UDim2.new(0.95, 0, 0, 22)
-settingsTitle1.Position               = UDim2.new(0.025, 0, 0, 5)
-settingsTitle1.BackgroundColor3       = Color3.fromRGB(30, 40, 60)
-settingsTitle1.TextColor3             = CurrentTheme.accent
-settingsTitle1.Font                   = Enum.Font.GothamBold
-settingsTitle1.TextSize               = 12
-settingsTitle1.TextXAlignment         = Enum.TextXAlignment.Left
-settingsTitle1.Text                   = "  🖥️  UI 大小"
-settingsTitle1.Parent                 = pageSettings
-Instance.new("UICorner", settingsTitle1).CornerRadius = UDim.new(0, 6)
-table.insert(themedAccentTexts, settingsTitle1)
-
-scaleLabel = Instance.new("TextLabel")
-scaleLabel.Size                   = UDim2.new(0.95, 0, 0, 26)
-scaleLabel.Position               = UDim2.new(0.025, 0, 0, 33)
-scaleLabel.BackgroundTransparency = 1
-scaleLabel.Text                   = string.format("当前缩放：%d%%", math.floor(CFG.UI_SCALE * 100 + 0.5))
-scaleLabel.TextColor3             = Color3.fromRGB(200, 220, 240)
-scaleLabel.Font                   = Enum.Font.GothamBold
-scaleLabel.TextSize               = 12
-scaleLabel.TextXAlignment         = Enum.TextXAlignment.Left
-scaleLabel.Parent                 = pageSettings
-
-local presets = {
-    { name = "小 75%",  value = 0.75 },
-    { name = "中 100%", value = 1.00 },
-    { name = "大 125%", value = 1.25 },
-    { name = "超大 150%", value = 1.50 },
-}
-for i, p in ipairs(presets) do
-    local btn = Instance.new("TextButton")
-    btn.Size             = UDim2.new(0.22, 0, 0, 30)
-    btn.Position         = UDim2.new(0.025 + (i - 1) * 0.245, 0, 0, 66)
-    btn.BackgroundColor3 = Color3.fromRGB(30, 40, 60)
-    btn.TextColor3       = Color3.new(1, 1, 1)
-    btn.Font             = Enum.Font.GothamBold
-    btn.TextSize         = 10
-    btn.Text             = p.name
-    btn.AutoButtonColor  = false
-    btn.Parent           = pageSettings
-    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
-    btn.MouseButton1Click:Connect(function()
-        pcall(function() sClick:Play() end)
-        applyUiScale(p.value)
-    end)
-end
-
-local minusBtn = Instance.new("TextButton")
-minusBtn.Size             = UDim2.new(0.46, 0, 0, 30)
-minusBtn.Position         = UDim2.new(0.025, 0, 0, 102)
-minusBtn.BackgroundColor3 = Color3.fromRGB(35, 45, 60)
-minusBtn.TextColor3       = Color3.new(1, 1, 1)
-minusBtn.Font             = Enum.Font.GothamBold
-minusBtn.TextSize         = 11
-minusBtn.Text             = "➖  缩小 10%"
-minusBtn.AutoButtonColor  = false
-minusBtn.Parent           = pageSettings
-Instance.new("UICorner", minusBtn).CornerRadius = UDim.new(0, 6)
-
-local plusBtn = Instance.new("TextButton")
-plusBtn.Size             = UDim2.new(0.46, 0, 0, 30)
-plusBtn.Position         = UDim2.new(0.515, 0, 0, 102)
-plusBtn.BackgroundColor3 = Color3.fromRGB(35, 45, 60)
-plusBtn.TextColor3       = Color3.new(1, 1, 1)
-plusBtn.Font             = Enum.Font.GothamBold
-plusBtn.TextSize         = 11
-plusBtn.Text             = "➕  放大 10%"
-plusBtn.AutoButtonColor  = false
-plusBtn.Parent           = pageSettings
-Instance.new("UICorner", plusBtn).CornerRadius = UDim.new(0, 6)
-
-minusBtn.MouseButton1Click:Connect(function()
-    pcall(function() sClick:Play() end)
-    applyUiScale(CFG.UI_SCALE - 0.10)
-end)
-plusBtn.MouseButton1Click:Connect(function()
-    pcall(function() sClick:Play() end)
-    applyUiScale(CFG.UI_SCALE + 0.10)
-end)
-
-scaleBox = Instance.new("TextBox")
-scaleBox.Size             = UDim2.new(0.5, 0, 0, 30)
-scaleBox.Position         = UDim2.new(0.025, 0, 0, 142)
-scaleBox.BackgroundColor3 = Color3.fromRGB(26, 32, 46)
-scaleBox.TextColor3       = Color3.fromRGB(230, 255, 255)
-scaleBox.Font             = Enum.Font.GothamBold
-scaleBox.TextSize         = 12
-scaleBox.Text             = string.format("%.2f", CFG.UI_SCALE)
-scaleBox.PlaceholderText  = "如 1.25"
-scaleBox.ClearTextOnFocus = false
-scaleBox.Parent           = pageSettings
-Instance.new("UICorner", scaleBox).CornerRadius = UDim.new(0, 6)
-local scaleBoxStroke = Instance.new("UIStroke", scaleBox)
-scaleBoxStroke.Color        = CurrentTheme.accent
-scaleBoxStroke.Thickness    = 1
-scaleBoxStroke.Transparency = 0.5
-
-scaleApplyBtn = Instance.new("TextButton")
-scaleApplyBtn.Size             = UDim2.new(0.42, 0, 0, 30)
-scaleApplyBtn.Position         = UDim2.new(0.545, 0, 0, 142)
-scaleApplyBtn.BackgroundColor3 = Color3.fromRGB(0, 150, 100)
-scaleApplyBtn.TextColor3       = Color3.new(1, 1, 1)
-scaleApplyBtn.Font             = Enum.Font.GothamBold
-scaleApplyBtn.TextSize         = 11
-scaleApplyBtn.Text             = "应用"
-scaleApplyBtn.AutoButtonColor  = false
-scaleApplyBtn.Parent           = pageSettings
-Instance.new("UICorner", scaleApplyBtn).CornerRadius = UDim.new(0, 6)
-
-local function applyCustomScale()
-    local n = tonumber(scaleBox.Text)
-    if n and n >= CFG.UI_SCALE_MIN and n <= CFG.UI_SCALE_MAX then
-        applyUiScale(n)
-    else
-        scaleBox.Text = string.format("%.2f", CFG.UI_SCALE)
-        scaleApplyBtn.Text = "无效值"
-        scaleApplyBtn.BackgroundColor3 = Color3.fromRGB(180, 40, 60)
-        task.delay(0.9, function()
-            scaleApplyBtn.Text = "应用"
-            scaleApplyBtn.BackgroundColor3 = Color3.fromRGB(0, 150, 100)
-        end)
-    end
-end
-
-scaleApplyBtn.MouseButton1Click:Connect(function()
-    pcall(function() sClick:Play() end)
-    applyCustomScale()
-end)
-scaleBox.FocusLost:Connect(function() applyCustomScale() end)
-
-local resetBtn = Instance.new("TextButton")
-resetBtn.Size             = UDim2.new(0.95, 0, 0, 28)
-resetBtn.Position         = UDim2.new(0.025, 0, 0, 178)
-resetBtn.BackgroundColor3 = Color3.fromRGB(80, 40, 40)
-resetBtn.TextColor3       = Color3.fromRGB(255, 220, 220)
-resetBtn.Font             = Enum.Font.GothamBold
-resetBtn.TextSize         = 11
-resetBtn.Text             = "🔄  恢复默认缩放（100%）"
-resetBtn.AutoButtonColor  = false
-resetBtn.Parent           = pageSettings
-Instance.new("UICorner", resetBtn).CornerRadius = UDim.new(0, 6)
-resetBtn.MouseButton1Click:Connect(function()
-    pcall(function() sClick:Play() end)
-    applyUiScale(1.0)
-end)
-
--- =====================================================================
---  🤖 AI 助手页（含 API 接入）
--- =====================================================================
-local chatScroll = Instance.new("ScrollingFrame")
-chatScroll.Size                   = UDim2.new(0.95, 0, 1, -72)
-chatScroll.Position               = UDim2.new(0.025, 0, 0, 4)
-chatScroll.BackgroundColor3       = Color3.fromRGB(20, 26, 38)
-chatScroll.BorderSizePixel        = 0
-chatScroll.ScrollBarThickness     = 2
-chatScroll.ScrollBarImageColor3   = CurrentTheme.accent
-chatScroll.CanvasSize             = UDim2.new(0, 0, 0, 0)
-chatScroll.AutomaticCanvasSize    = Enum.AutomaticSize.Y
-chatScroll.ScrollingDirection     = Enum.ScrollingDirection.Y
-chatScroll.Parent                 = pageAI
-Instance.new("UICorner", chatScroll).CornerRadius = UDim.new(0, 6)
-
-local chatLayout = Instance.new("UIListLayout", chatScroll)
-chatLayout.Padding = UDim.new(0, 6)
-chatLayout.SortOrder = Enum.SortOrder.LayoutOrder
-
-local chatPadding = Instance.new("UIPadding", chatScroll)
-chatPadding.PaddingTop    = UDim.new(0, 6)
-chatPadding.PaddingBottom = UDim.new(0, 6)
-chatPadding.PaddingLeft   = UDim.new(0, 6)
-chatPadding.PaddingRight  = UDim.new(0, 6)
-
-local chatInput = Instance.new("TextBox")
-chatInput.Size             = UDim2.new(0.72, 0, 0, 30)
-chatInput.Position         = UDim2.new(0.025, 0, 1, -36)
-chatInput.BackgroundColor3 = Color3.fromRGB(26, 32, 46)
-chatInput.TextColor3       = Color3.fromRGB(230, 255, 255)
-chatInput.PlaceholderColor3 = Color3.fromRGB(120, 140, 160)
-chatInput.Font             = Enum.Font.Gotham
-chatInput.TextSize         = 12
-chatInput.Text             = ""
-chatInput.PlaceholderText  = "和助手说点什么…"
-chatInput.ClearTextOnFocus = false
-chatInput.Parent           = pageAI
-Instance.new("UICorner", chatInput).CornerRadius = UDim.new(0, 6)
-local chatInputStroke = Instance.new("UIStroke", chatInput)
-chatInputStroke.Color        = CurrentTheme.accent
-chatInputStroke.Thickness    = 1
-chatInputStroke.Transparency = 0.5
-
-local sendBtn = Instance.new("TextButton")
-sendBtn.Size             = UDim2.new(0.22, 0, 0, 30)
-sendBtn.Position         = UDim2.new(0.755, 0, 1, -36)
-sendBtn.BackgroundColor3 = Color3.fromRGB(0, 150, 200)
-sendBtn.TextColor3       = Color3.new(1, 1, 1)
-sendBtn.Font             = Enum.Font.GothamBold
-sendBtn.TextSize         = 11
-sendBtn.Text             = "发送"
-sendBtn.AutoButtonColor  = false
-sendBtn.Parent           = pageAI
-Instance.new("UICorner", sendBtn).CornerRadius = UDim.new(0, 6)
-
--- 消息气泡（返回 bubble 供外部调用）
-local function addChatMessage(text, isUser)
-    local bubble = Instance.new("Frame")
-    bubble.BackgroundTransparency = 1
-    bubble.Size = UDim2.new(1, 0, 0, 0)
-    bubble.AutomaticSize = Enum.AutomaticSize.Y
-    bubble.Parent = chatScroll
-
-    local container = Instance.new("Frame")
-    container.BackgroundColor3 = isUser and Color3.fromRGB(0, 100, 160) or Color3.fromRGB(36, 44, 60)
-    container.BorderSizePixel  = 0
-    container.AutomaticSize    = Enum.AutomaticSize.Y
-    container.Size             = isUser and UDim2.new(0.85, 0, 0, 0) or UDim2.new(1, 0, 0, 0)
-    container.Position         = isUser and UDim2.new(1, 0, 0, 0) or UDim2.new(0, 0, 0, 0)
-    container.AnchorPoint      = isUser and Vector2.new(1, 0) or Vector2.new(0, 0)
-    container.Parent           = bubble
-    Instance.new("UICorner", container).CornerRadius = UDim.new(0, 8)
-
-    local padding = Instance.new("UIPadding", container)
-    padding.PaddingTop    = UDim.new(0, 6)
-    padding.PaddingBottom = UDim.new(0, 6)
-    padding.PaddingLeft   = UDim.new(0, 10)
-    padding.PaddingRight  = UDim.new(0, 10)
-
-    local label = Instance.new("TextLabel")
-    label.BackgroundTransparency = 1
-    label.Size                   = UDim2.new(1, 0, 0, 0)
-    label.AutomaticSize          = Enum.AutomaticSize.Y
-    label.Text                   = text
-    label.TextColor3             = Color3.new(1, 1, 1)
-    label.Font                   = Enum.Font.Gotham
-    label.TextSize               = 11
-    label.TextWrapped            = true
-    label.TextXAlignment         = Enum.TextXAlignment.Left
-    label.TextYAlignment         = Enum.TextYAlignment.Top
-    label.Parent                 = container
-
-    task.defer(function()
-        task.wait()
-        chatScroll.CanvasPosition = Vector2.new(0, math.max(0, chatLayout.AbsoluteContentSize.Y))
-    end)
-
-    return bubble
-end
-
--- ═══════════════════════════════════════════════════════
---  本地规则引擎（API 失败时使用）
--- ═══════════════════════════════════════════════════════
-local function contains(s, sub)
-    return string.find(s, sub, 1, true) ~= nil
-end
-
-local function aiRespondLocal(rawText)
-    local t = string.lower(rawText)
-
-    if contains(t, "帮助") or contains(t, "help") or contains(t, "怎么用")
-    or contains(t, "指令") or contains(t, "命令") then
-        return "我是 Sigma Hub 内置助手，可以帮你做这些事：\n" ..
-               "• 开/关 技能、自动卖鱼、锁定鱼条、ESP\n" ..
-               "• 查状态（显示所有开关当前状态）\n" ..
-               "• 传送 <玩家名>（传送到指定玩家）\n" ..
-               "• 查玩家 / 查NPC（列出当前列表）\n" ..
-               "• 时间（显示当前时间）\n" ..
-               "• 清空（清空聊天记录）"
-    end
-
-    if contains(t, "清空") or contains(t, "清除聊天") or contains(t, "clear") then
-        for _, child in ipairs(chatScroll:GetChildren()) do
-            if child:IsA("Frame") then child:Destroy() end
-        end
-        return "聊天记录已清空。"
-    end
-
-    if contains(t, "你好") or contains(t, "hello") or contains(t, "hi")
-    or contains(t, "嗨") or contains(t, "在吗") then
-        return "你好！我是 Sigma Hub 助手，随时可以帮你操作面板。试试说「帮助」看看我能干什么。"
-    end
-
-    if contains(t, "你叫什么") or contains(t, "你是谁") or contains(t, "your name") then
-        return "我是 Sigma Hub 内置助手，一个纯本地运行的规则机器人。如果配置了 API，还能接入真正的 AI。"
-    end
-
-    if contains(t, "时间") or contains(t, "time") or contains(t, "几点") then
-        local ok, str = pcall(function()
-            return DateTime.now():FormatLocalTime("YYYY-MM-DD HH:mm:ss", "zh-cn")
-        end)
-        if ok and str then return "当前时间：" .. str end
-        return "当前时间戳：" .. tostring(os.time())
-    end
-
-    if contains(t, "状态") or contains(t, "status") or contains(t, "开关") then
-        return string.format(
-            "当前状态：\n• 自动技能：%s\n• 自动卖鱼：%s\n• 锁定鱼条：%s\n• 玩家 ESP：%s\n• NPC ESP：%s\n• 卖出间隔：%s 秒",
-            State.AutoSkill and "开" or "关",
-            State.AutoSell  and "开" or "关",
-            State.BarLock   and "开" or "关",
-            State.PlayerESP and "开" or "关",
-            State.NpcESP    and "开" or "关",
-            tostring(CFG.SELL_INTERVAL)
-        )
-    end
-
-    if contains(t, "传送") or contains(t, "tp ") or contains(t, "传 ") then
-        local targetName = rawText:match("[传送tp ]+([%w_]+)")
-        if not targetName or targetName == "" then
-            return "用法：传送 <玩家名>，例如「传送 Builderman」"
-        end
-        local target = nil
-        for _, plr in ipairs(Players:GetPlayers()) do
-            if plr ~= LP and string.lower(plr.Name) == string.lower(targetName) then
-                target = plr
-                break
-            end
-        end
-        if not target then
-            for _, plr in ipairs(Players:GetPlayers()) do
-                if plr ~= LP and string.find(string.lower(plr.Name), string.lower(targetName), 1, true) then
-                    target = plr
-                    break
-                end
-            end
-        end
-        if not target or not target.Character then
-            return "找不到玩家「" .. targetName .. "」。"
-        end
-        local hrp = target.Character:FindFirstChild("HumanoidRootPart")
-        local myChar = LP.Character
-        local myHrp = myChar and myChar:FindFirstChild("HumanoidRootPart")
-        if hrp and myHrp then
-            myHrp.CFrame = hrp.CFrame * CFrame.new(0, 0, -CFG.TP_OFFSET)
-            return "已传送到玩家 " .. target.Name
-        end
-        return "传送失败，目标还没有角色。"
-    end
-
-    if contains(t, "查玩家") or contains(t, "玩家列表") or contains(t, "player list") then
-        local list = {}
-        for _, plr in ipairs(Players:GetPlayers()) do
-            if plr ~= LP then table.insert(list, plr.Name) end
-        end
-        if #list == 0 then return "当前没有其他玩家。" end
-        return "当前服务器玩家：" .. table.concat(list, "、")
-    end
-
-    if contains(t, "查npc") or contains(t, "查 npc") or contains(t, "npc列表") then
-        local list, seen = {}, {}
-        for _, obj in ipairs(workspace:GetDescendants()) do
-            if obj:IsA("Model") and isEligibleNpc(obj) then
-                local key = normalizeNpcName(obj.Name)
-                if not seen[key] then
-                    seen[key] = true
-                    table.insert(list, obj.Name)
-                end
-            end
-        end
-        if #list == 0 then return "当前没有符合条件的 NPC。" end
-        if #list > 20 then
-            return "当前有 " .. #list .. " 个符合条件的 NPC（只列出前 20 个）：\n" ..
-                table.concat({unpack(list, 1, 20)}, "、")
-        end
-        return "当前符合条件的 NPC：" .. table.concat(list, "、")
-    end
-
-    if contains(t, "技能") or contains(t, "skill") then
-        if contains(t, "关") or contains(t, "off") or contains(t, "停") then
-            setToggleState("AutoSkill", false)
-            return "已关闭自动全技能。"
-        elseif contains(t, "开") or contains(t, "on") or contains(t, "启") then
-            setToggleState("AutoSkill", true)
-            return "已开启自动全技能。"
-        end
-        return "自动全技能当前：" .. (State.AutoSkill and "开启" or "关闭")
-    end
-
-    if contains(t, "卖鱼") or contains(t, "sell") then
-        if contains(t, "关") or contains(t, "off") then
-            setToggleState("AutoSell", false)
-            return "已关闭自动卖鱼。"
-        elseif contains(t, "开") or contains(t, "on") then
-            setToggleState("AutoSell", true)
-            return "已开启自动卖鱼，间隔 " .. tostring(CFG.SELL_INTERVAL) .. " 秒。"
-        elseif contains(t, "现在") or contains(t, "立即") or contains(t, "马上") then
-            pcall(function()
-                local events = ReplicatedStorage:FindFirstChild("Events")
-                if events then
-                    local sell = events:FindFirstChild("SellFish")
-                    if sell then sell:FireServer("All") return end
-                end
-                local sell = ReplicatedStorage:FindFirstChild("SellFish")
-                if sell then sell:FireServer("All") end
-            end)
-            return "已立即卖出所有鱼。"
-        end
-        return "自动卖鱼当前：" .. (State.AutoSell and "开启" or "关闭")
-    end
-
-    if contains(t, "鱼条") or contains(t, "锁定") or contains(t, "bar") then
-        if contains(t, "关") or contains(t, "off") then
-            setToggleState("BarLock", false)
-            return "已关闭鱼条锁定。"
-        elseif contains(t, "开") or contains(t, "on") then
-            setToggleState("BarLock", true)
-            return "已开启鱼条锁定。"
-        end
-        return "鱼条锁定当前：" .. (State.BarLock and "开启" or "关闭")
-    end
-
-    if contains(t, "esp") then
-        if contains(t, "关") or contains(t, "off") then
-            setToggleState("PlayerESP", false)
-            setToggleState("NpcESP", false)
-            return "已关闭玩家和 NPC 的 ESP。"
-        elseif contains(t, "玩家") and (contains(t, "开") or contains(t, "on")) then
-            setToggleState("PlayerESP", true)
-            return "已开启玩家 ESP。"
-        elseif contains(t, "npc") and (contains(t, "开") or contains(t, "on")) then
-            setToggleState("NpcESP", true)
-            return "已开启 NPC ESP。"
-        elseif contains(t, "开") or contains(t, "on") then
-            setToggleState("PlayerESP", true)
-            setToggleState("NpcESP", true)
-            return "已开启玩家和 NPC 的 ESP。"
-        end
-        return string.format("ESP 状态：玩家 %s，NPC %s",
-            State.PlayerESP and "开" or "关",
-            State.NpcESP and "开" or "关")
-    end
-
-    return "抱歉，我还不太理解「" .. rawText .. "」。输入「帮助」可以看我会做的事情。"
-end
-
--- ═══════════════════════════════════════════════════════
---  API 调用
--- ═══════════════════════════════════════════════════════
-
--- 检测 HTTP 函数
-local httpRequestFn = nil
-local httpFnName    = "无"
-if syn and syn.request then
-    httpRequestFn = syn.request; httpFnName = "syn.request"
-elseif http and http.request then
-    httpRequestFn = http.request; httpFnName = "http.request"
-elseif request then
-    httpRequestFn = request; httpFnName = "request"
-elseif http_request then
-    httpRequestFn = http_request; httpFnName = "http_request"
-elseif fluxus and fluxus.request then
-    httpRequestFn = fluxus.request; httpFnName = "fluxus.request"
-end
-print("★ [Sigma Hub] HTTP 支持：" .. httpFnName)
-
-local aiChatHistory = {}
-
-local function buildAIRequestBody(userMessage)
-    local messages = {}
-    table.insert(messages, { role = "system", content = AI_CONFIG.SYSTEM_PROMPT })
-    for _, msg in ipairs(aiChatHistory) do
-        table.insert(messages, msg)
-    end
-    table.insert(messages, { role = "user", content = userMessage })
     return {
-        model       = AI_CONFIG.MODEL,
-        messages    = messages,
-        temperature = 0.7,
-        max_tokens  = 500,
+        row = row, lbl = lbl, box = box,
+        stroke = rS, boxStroke = bS, btn = okBtn,
     }
 end
 
-local function callAI(userMessage)
-    if not httpRequestFn then
-        return nil, "当前执行器不支持 HTTP 请求"
+-- ═════════════════════════════════════════════════════════════════════
+--  ①  技能页
+-- ═════════════════════════════════════════════════════════════════════
+local ySkill = header(pages.skill, "⚡", "自动化技能", "AUTO SKILLS")
+toggle(pages.skill, ySkill + 4,   "✦", "全部技能", "AS",  sToggle)
+toggle(pages.skill, ySkill + 52,  "Z", "技能 Z",   "SZ",  sToggle)
+toggle(pages.skill, ySkill + 100, "X", "技能 X",   "SX",  sToggle)
+toggle(pages.skill, ySkill + 148, "C", "技能 C",   "SC",  sToggle)
+toggle(pages.skill, ySkill + 196, "V", "技能 V",   "SV",  sToggle)
+
+-- ═════════════════════════════════════════════════════════════════════
+--  ②  钓鱼页
+-- ═════════════════════════════════════════════════════════════════════
+local yFish = header(pages.fish, "🎣", "钓鱼辅助", "FISHING ASSIST")
+toggle(pages.fish, yFish + 4,   "🔒", "锁定鱼条",       "BL",    sToggle)
+toggle(pages.fish, yFish + 52,  "💰", "自动卖鱼",       "ASell", sToggle)
+toggle(pages.fish, yFish + 100, "🪝", "自动购买远古鱼饵", "ABuy",  sToggle)
+
+local sellBtn = action(pages.fish, yFish + 148, "💸", "立即卖出所有鱼", T.card, function()
+    pcall(function() sSell:Play() end)
+    local ok = false
+    local ev = RS:FindFirstChild("Events")
+    if ev then
+        local s = ev:FindFirstChild("SellFish")
+        if s then s:FireServer("All") ok = true end
     end
-    if not AI_CONFIG.API_KEY or AI_CONFIG.API_KEY == ""
-    or AI_CONFIG.API_KEY == "在这里填入你的API-Key" then
-        return nil, "未配置 API Key（请在脚本顶部 AI_CONFIG 里填写）"
+    if not ok then
+        local s = RS:FindFirstChild("SellFish")
+        if s then s:FireServer("All") ok = true end
     end
-
-    local body = buildAIRequestBody(userMessage)
-    local jsonBody
-    local okEncode, encodeErr = pcall(function()
-        jsonBody = HttpService:JSONEncode(body)
-    end)
-    if not okEncode then
-        return nil, "请求体编码失败：" .. tostring(encodeErr)
-    end
-
-    local okReq, response = pcall(function()
-        return httpRequestFn({
-            Url     = AI_CONFIG.API_URL,
-            Method  = "POST",
-            Headers = {
-                ["Content-Type"]  = "application/json",
-                ["Authorization"] = "Bearer " .. AI_CONFIG.API_KEY,
-            },
-            Body = jsonBody,
-        })
-    end)
-
-    if not okReq then
-        return nil, "请求发送失败：" .. tostring(response)
-    end
-    if not response then
-        return nil, "服务器无响应"
-    end
-    if not response.Body or response.Body == "" then
-        return nil, "响应为空（状态码 " .. tostring(response.StatusCode) .. "）"
-    end
-
-    local okDecode, data = pcall(function()
-        return HttpService:JSONDecode(response.Body)
-    end)
-    if not okDecode then
-        return nil, "响应解析失败：" .. tostring(data)
-    end
-
-    if data.choices and data.choices[1]
-    and data.choices[1].message
-    and data.choices[1].message.content then
-        local reply = data.choices[1].message.content
-        table.insert(aiChatHistory, { role = "user",      content = userMessage })
-        table.insert(aiChatHistory, { role = "assistant", content = reply })
-        while #aiChatHistory > AI_CONFIG.MAX_HISTORY * 2 do
-            table.remove(aiChatHistory, 1)
-        end
-        return reply
-    end
-
-    if data.error and data.error.message then
-        return nil, "API 错误：" .. data.error.message
-    end
-
-    return nil, "未知响应格式（状态码 " .. tostring(response.StatusCode) .. "）"
-end
-
--- 对外入口：本地指令优先，其他走 API，失败回退本地
-local function aiRespond(rawText)
-    local localKeywords = {
-        "帮助", "help", "指令", "清空", "clear", "状态", "status",
-        "传送", "查玩家", "查npc", "查 npc", "npc列表",
-        "开技能", "关技能", "开卖鱼", "关卖鱼", "开鱼条", "关鱼条",
-        "现在卖鱼", "立即卖鱼", "开esp", "关esp",
-    }
-    local lower = string.lower(rawText)
-    for _, kw in ipairs(localKeywords) do
-        if string.find(lower, string.lower(kw), 1, true) then
-            return aiRespondLocal(rawText)
-        end
-    end
-
-    local reply, err = callAI(rawText)
-    if reply then return reply end
-
-    if AI_CONFIG.FALLBACK_TO_LOCAL then
-        local fallback = aiRespondLocal(rawText)
-        return fallback .. "\n\n（AI 暂不可用：" .. (err or "未知错误") .. "，已回退本地模式）"
-    end
-    return "AI 服务暂时不可用：" .. (err or "未知错误")
-end
-
--- 发送处理
-local function handleSend()
-    local text = chatInput.Text
-    if not text or text == "" then return end
-    chatInput.Text = ""
-    pcall(function() sClick:Play() end)
-
-    addChatMessage(text, true)
-
-    local thinkingBubble = addChatMessage("正在思考…", false)
-    thinkingBubble.Name = "ThinkingBubble"
-
-    task.wait(0.15)
-
-    local reply = aiRespond(text)
-
-    local thinking = chatScroll:FindFirstChild("ThinkingBubble")
-    if thinking then thinking:Destroy() end
-
-    addChatMessage(reply, false)
-end
-
-sendBtn.MouseButton1Click:Connect(handleSend)
-chatInput.FocusLost:Connect(function(enter)
-    if enter then handleSend() end
 end)
 
--- 首次欢迎消息
-addChatMessage(
-    "你好，我是 Sigma Hub 内置助手。\n" ..
-    "• 本地指令：输入「帮助」查看\n" ..
-    "• 真实 AI：在脚本顶部 AI_CONFIG 填好 API Key 后，可以直接聊任何话题",
-    false
+local buyBtn = action(pages.fish, yFish + 196, "🛒", "立即购买远古鱼饵", T.card, function()
+    pcall(function() sBuy:Play() end)
+    pcall(function()
+        local ev = RS:FindFirstChild("Events")
+        if ev then
+            local bb = ev:FindFirstChild("BuyBait")
+            if bb then
+                bb:FireServer(C.BAIT_NAME, C.BAIT_QTY)
+            end
+        end
+    end)
+end)
+
+local sellIntRow = intervalRow(
+    pages.fish, yFish + 248,
+    "⏱", "卖出间隔（秒）",
+    C.SELL_INTERVAL, C.SELL_MIN, C.SELL_MAX,
+    function(n) C.SELL_INTERVAL = n end
 )
 
--- =====================================================================
---  传送页
--- =====================================================================
-local tpPlayerBtns = {}
-local tpNpcBtns    = {}
-local tpHeaderPlayer, tpHeaderNpc
+local buyIntRow = intervalRow(
+    pages.fish, yFish + 300,
+    "⏳", "购买间隔（秒）",
+    C.BUY_INTERVAL, C.BUY_MIN, C.BUY_MAX,
+    function(n) C.BUY_INTERVAL = n end
+)
 
-local function teleportToHrp(targetHrp)
-    local char = LP.Character
-    if not char then return end
-    local myHrp = char:FindFirstChild("HumanoidRootPart")
-    if not myHrp then return end
-    myHrp.CFrame = targetHrp.CFrame * CFrame.new(0, 0, -CFG.TP_OFFSET)
+-- ═════════════════════════════════════════════════════════════════════
+--  ③  透视页
+-- ═════════════════════════════════════════════════════════════════════
+local yEsp = header(pages.esp, "👁", "透视系统", "VISUAL ESP")
+toggle(pages.esp, yEsp + 4,  "🟢", "显示玩家", "PE", sClick)
+toggle(pages.esp, yEsp + 52, "🔴", "显示 NPC", "NE", sClick)
+
+local infoBox = Instance.new("Frame")
+infoBox.Size = UDim2.new(1, 0, 0, 130)
+infoBox.Position = UDim2.new(0, 0, 0, yEsp + 104)
+infoBox.BackgroundColor3 = T.card
+infoBox.BorderSizePixel = 0
+infoBox.Parent = pages.esp
+Instance.new("UICorner", infoBox).CornerRadius = UDim.new(0, 14)
+local infoS = Instance.new("UIStroke", infoBox)
+infoS.Color = T.b; infoS.Thickness = 1; infoS.Transparency = 0.6
+
+local infoLbl = Instance.new("TextLabel")
+infoLbl.Size = UDim2.new(1, -24, 1, -20)
+infoLbl.Position = UDim2.new(0, 12, 0, 10)
+infoLbl.BackgroundTransparency = 1
+infoLbl.Text = "🟢  玩家标签 · 绿色\n🔴  NPC 标签 · 红色\n🎯  仅任务 / 刷新 NPC\n🔄  相似名自动去重\n📏  超过 500m 隐藏"
+infoLbl.TextColor3 = TXT_DIM
+infoLbl.Font = Enum.Font.Gotham
+infoLbl.TextSize = 11
+infoLbl.TextWrapped = true
+infoLbl.TextXAlignment = Enum.TextXAlignment.Left
+infoLbl.TextYAlignment = Enum.TextYAlignment.Top
+infoLbl.Parent = infoBox
+
+-- ═════════════════════════════════════════════════════════════════════
+--  ④  传送页
+-- ═════════════════════════════════════════════════════════════════════
+local yTp = header(pages.tp, "🌀", "传送点", "TELEPORT")
+local tpPlayerList, tpNpcList = {}, {}
+local tpHeaderP, tpHeaderN
+
+local function tpTo(hrp)
+    local c = LP.Character
+    if not c then return end
+    local my = c:FindFirstChild("HumanoidRootPart")
+    if not my then return end
+    my.CFrame = hrp.CFrame * CFrame.new(0, 0, -C.TP_OFFSET)
 end
 
-local function newTpButton(parent, y, label, color, onTp)
+local function tpBtn(parent, y, ico, label, color, cb)
     local btn = Instance.new("TextButton")
-    btn.Size                   = UDim2.new(0.95, 0, 0, 30)
-    btn.Position               = UDim2.new(0.025, 0, 0, y)
-    btn.BackgroundColor3       = color
-    btn.TextColor3             = Color3.new(1, 1, 1)
-    btn.Font                   = Enum.Font.GothamBold
-    btn.TextSize               = 11
-    btn.Text                   = label
-    btn.TextTruncate           = Enum.TextTruncate.AtEnd
-    btn.TextXAlignment         = Enum.TextXAlignment.Left
-    btn.AutoButtonColor        = false
-    btn.ClipsDescendants       = true
-    btn.Parent                 = parent
-    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
+    btn.Size = UDim2.new(1, 0, 0, 36)
+    btn.Position = UDim2.new(0, 0, 0, y)
+    btn.BackgroundColor3 = color
+    btn.BorderSizePixel = 0
+    btn.Text = ""
+    btn.AutoButtonColor = false
+    btn.Parent = parent
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 11)
+    local bS = Instance.new("UIStroke", btn)
+    bS.Color = T.b; bS.Thickness = 1; bS.Transparency = 0.7
+
+    local ic = Instance.new("TextLabel")
+    ic.Size = UDim2.new(0, 26, 1, 0)
+    ic.Position = UDim2.new(0, 8, 0, 0)
+    ic.BackgroundTransparency = 1
+    ic.Text = ico
+    ic.Font = Enum.Font.GothamBold
+    ic.TextSize = 13
+    ic.Parent = btn
+
+    local lb = Instance.new("TextLabel")
+    lb.Size = UDim2.new(1, -44, 1, 0)
+    lb.Position = UDim2.new(0, 34, 0, 0)
+    lb.BackgroundTransparency = 1
+    lb.Text = label
+    lb.TextColor3 = TXT
+    lb.Font = Enum.Font.GothamBold
+    lb.TextSize = 12
+    lb.TextTruncate = Enum.TextTruncate.AtEnd
+    lb.TextXAlignment = Enum.TextXAlignment.Left
+    lb.Parent = btn
+
+    local ar = Instance.new("TextLabel")
+    ar.Size = UDim2.new(0, 18, 1, 0)
+    ar.Position = UDim2.new(1, -22, 0, 0)
+    ar.BackgroundTransparency = 1
+    ar.Text = "›"
+    ar.TextColor3 = T.a
+    ar.Font = Enum.Font.GothamBold
+    ar.TextSize = 16
+    ar.Parent = btn
+
+    btn.MouseEnter:Connect(function()
+        Tween:Create(btn, TweenInfo.new(0.15), { BackgroundColor3 = color:Lerp(T.a, 0.15) }):Play()
+        Tween:Create(bS, TweenInfo.new(0.15), { Transparency = 0.3 }):Play()
+    end)
+    btn.MouseLeave:Connect(function()
+        Tween:Create(btn, TweenInfo.new(0.15), { BackgroundColor3 = color }):Play()
+        Tween:Create(bS, TweenInfo.new(0.15), { Transparency = 0.7 }):Play()
+    end)
     btn.MouseButton1Click:Connect(function()
         pcall(function() sTp:Play() end)
-        if onTp then pcall(onTp) end
-        btn.TextColor3 = Color3.fromRGB(255, 240, 120)
-        task.delay(0.35, function()
-            if btn.Parent then btn.TextColor3 = Color3.new(1, 1, 1) end
-        end)
+        if cb then pcall(cb) end
     end)
     return btn
 end
 
-local function refreshTeleportList()
-    for _, b in ipairs(tpPlayerBtns) do if b.Parent then b:Destroy() end end
-    for _, b in ipairs(tpNpcBtns) do if b.Parent then b:Destroy() end end
-    tpPlayerBtns = {}
-    tpNpcBtns    = {}
+local function refreshTp()
+    for _, b in ipairs(tpPlayerList) do if b.Parent then b:Destroy() end end
+    for _, b in ipairs(tpNpcList)    do if b.Parent then b:Destroy() end end
+    tpPlayerList, tpNpcList = {}, {}
 
-    local playerList = {}
-    for _, plr in ipairs(Players:GetPlayers()) do
-        if plr ~= LP and plr.Character then
-            local hrp = plr.Character:FindFirstChild("HumanoidRootPart")
-            if hrp then
-                table.insert(playerList, { name = plr.Name, model = plr.Character })
-            end
+    local pl = {}
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= LP and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+            table.insert(pl, { n=p.Name, m=p.Character })
         end
     end
-    table.sort(playerList, function(a, b) return a.name < b.name end)
+    table.sort(pl, function(a,b) return a.n < b.n end)
 
-    local npcRaw = {}
-    for _, obj in ipairs(workspace:GetDescendants()) do
-        if obj:IsA("Model") and isEligibleNpc(obj) then
-            table.insert(npcRaw, obj)
-        end
+    local nRaw = {}
+    for _, o in ipairs(workspace:GetDescendants()) do
+        if o:IsA("Model") and isOkNpc(o) then table.insert(nRaw, o) end
     end
-    local npcList = dedupeNpcsByName(npcRaw)
-    table.sort(npcList, function(a, b) return a.Name < b.Name end)
+    local nl = dedupe(nRaw)
+    table.sort(nl, function(a,b) return a.Name < b.Name end)
 
-    local y = 5
+    local y = yTp + 4
 
-    if tpHeaderPlayer and tpHeaderPlayer.Parent then tpHeaderPlayer:Destroy() end
-    tpHeaderPlayer = Instance.new("TextLabel")
-    tpHeaderPlayer.Size                   = UDim2.new(0.95, 0, 0, 22)
-    tpHeaderPlayer.Position               = UDim2.new(0.025, 0, 0, y)
-    tpHeaderPlayer.BackgroundColor3       = Color3.fromRGB(30, 40, 60)
-    tpHeaderPlayer.TextColor3             = CurrentTheme.accent
-    tpHeaderPlayer.Font                   = Enum.Font.GothamBold
-    tpHeaderPlayer.TextSize               = 11
-    tpHeaderPlayer.TextXAlignment         = Enum.TextXAlignment.Left
-    tpHeaderPlayer.Text                   = "  🎯  玩家 (" .. #playerList .. ")"
-    tpHeaderPlayer.Parent                 = pageTp
-    Instance.new("UICorner", tpHeaderPlayer).CornerRadius = UDim.new(0, 6)
-    y = y + 28
+    if tpHeaderP then tpHeaderP:Destroy() end
+    tpHeaderP = Instance.new("TextLabel")
+    tpHeaderP.Size = UDim2.new(1, 0, 0, 24)
+    tpHeaderP.Position = UDim2.new(0, 0, 0, y)
+    tpHeaderP.BackgroundColor3 = T.card
+    tpHeaderP.Text = "  🎮  玩家  (" .. #pl .. ")"
+    tpHeaderP.TextColor3 = T.a
+    tpHeaderP.Font = Enum.Font.GothamBold
+    tpHeaderP.TextSize = 12
+    tpHeaderP.TextXAlignment = Enum.TextXAlignment.Left
+    tpHeaderP.BorderSizePixel = 0
+    tpHeaderP.Parent = pages.tp
+    Instance.new("UICorner", tpHeaderP).CornerRadius = UDim.new(0, 10)
+    y = y + 30
 
-    if #playerList == 0 then
-        local empty = Instance.new("TextLabel")
-        empty.Size = UDim2.new(0.95, 0, 0, 26)
-        empty.Position = UDim2.new(0.025, 0, 0, y)
-        empty.BackgroundColor3 = Color3.fromRGB(22, 26, 38)
-        empty.TextColor3 = Color3.fromRGB(150, 160, 180)
-        empty.Font = Enum.Font.Gotham
-        empty.TextSize = 10
-        empty.Text = "  暂无其他玩家"
-        empty.Parent = pageTp
-        Instance.new("UICorner", empty).CornerRadius = UDim.new(0, 6)
-        table.insert(tpPlayerBtns, empty)
-        y = y + 32
+    if #pl == 0 then
+        local e = Instance.new("TextLabel")
+        e.Size = UDim2.new(1, 0, 0, 28); e.Position = UDim2.new(0, 0, 0, y)
+        e.BackgroundColor3 = T.card; e.TextColor3 = TXT_MUTED
+        e.Font = Enum.Font.Gotham; e.TextSize = 11
+        e.Text = "  暂无其他玩家"; e.TextXAlignment = Enum.TextXAlignment.Left
+        e.BorderSizePixel = 0; e.Parent = pages.tp
+        Instance.new("UICorner", e).CornerRadius = UDim.new(0, 10)
+        table.insert(tpPlayerList, e)
+        y = y + 34
     else
-        for _, entry in ipairs(playerList) do
-            local plrModel = entry.model
-            local btn = newTpButton(pageTp, y, "  🎯  " .. entry.name,
-                Color3.fromRGB(0, 100, 190), function()
-                    if not plrModel.Parent then return end
-                    local hrp = plrModel:FindFirstChild("HumanoidRootPart")
-                    if hrp then teleportToHrp(hrp) end
-                end)
-            table.insert(tpPlayerBtns, btn)
-            y = y + 34
+        for _, en in ipairs(pl) do
+            local m = en.m
+            local b = tpBtn(pages.tp, y, "🎯", en.n, T.card, function()
+                if not m.Parent then return end
+                local hrp = m:FindFirstChild("HumanoidRootPart")
+                if hrp then tpTo(hrp) end
+            end)
+            table.insert(tpPlayerList, b)
+            y = y + 38
         end
     end
 
     y = y + 8
 
-    if tpHeaderNpc and tpHeaderNpc.Parent then tpHeaderNpc:Destroy() end
-    tpHeaderNpc = Instance.new("TextLabel")
-    tpHeaderNpc.Size                   = UDim2.new(0.95, 0, 0, 22)
-    tpHeaderNpc.Position               = UDim2.new(0.025, 0, 0, y)
-    tpHeaderNpc.BackgroundColor3       = Color3.fromRGB(30, 40, 60)
-    tpHeaderNpc.TextColor3             = CurrentTheme.accent
-    tpHeaderNpc.Font                   = Enum.Font.GothamBold
-    tpHeaderNpc.TextSize               = 11
-    tpHeaderNpc.TextXAlignment         = Enum.TextXAlignment.Left
-    local npcHeaderSuffix = ""
-    if CFG.FilterQuestNpcs then npcHeaderSuffix = npcHeaderSuffix .. " · 任务/刷新" end
-    if CFG.DedupeNpcs then      npcHeaderSuffix = npcHeaderSuffix .. " · 已去重"   end
-    tpHeaderNpc.Text                   = "  📍  NPC" .. npcHeaderSuffix .. " (" .. #npcList .. ")"
-    tpHeaderNpc.Parent                 = pageTp
-    Instance.new("UICorner", tpHeaderNpc).CornerRadius = UDim.new(0, 6)
-    y = y + 28
+    if tpHeaderN then tpHeaderN:Destroy() end
+    tpHeaderN = Instance.new("TextLabel")
+    tpHeaderN.Size = UDim2.new(1, 0, 0, 24)
+    tpHeaderN.Position = UDim2.new(0, 0, 0, y)
+    tpHeaderN.BackgroundColor3 = T.card
+    local sfxTxt = ""
+    if C.FilterQuestNpcs then sfxTxt = sfxTxt .. " · 任务" end
+    if C.DedupeNpcs then sfxTxt = sfxTxt .. " · 去重" end
+    tpHeaderN.Text = "  📍  NPC" .. sfxTxt .. "  (" .. #nl .. ")"
+    tpHeaderN.TextColor3 = T.a
+    tpHeaderN.Font = Enum.Font.GothamBold
+    tpHeaderN.TextSize = 12
+    tpHeaderN.TextXAlignment = Enum.TextXAlignment.Left
+    tpHeaderN.BorderSizePixel = 0
+    tpHeaderN.Parent = pages.tp
+    Instance.new("UICorner", tpHeaderN).CornerRadius = UDim.new(0, 10)
+    y = y + 30
 
-    if #npcList == 0 then
-        local empty = Instance.new("TextLabel")
-        empty.Size = UDim2.new(0.95, 0, 0, 26)
-        empty.Position = UDim2.new(0.025, 0, 0, y)
-        empty.BackgroundColor3 = Color3.fromRGB(22, 26, 38)
-        empty.TextColor3 = Color3.fromRGB(150, 160, 180)
-        empty.Font = Enum.Font.Gotham
-        empty.TextSize = 10
-        empty.Text = CFG.FilterQuestNpcs and "  暂未发现任务/刷新 NPC" or "  暂未发现 NPC"
-        empty.Parent = pageTp
-        Instance.new("UICorner", empty).CornerRadius = UDim.new(0, 6)
-        table.insert(tpNpcBtns, empty)
-        y = y + 32
+    if #nl == 0 then
+        local e = Instance.new("TextLabel")
+        e.Size = UDim2.new(1, 0, 0, 28); e.Position = UDim2.new(0, 0, 0, y)
+        e.BackgroundColor3 = T.card; e.TextColor3 = TXT_MUTED
+        e.Font = Enum.Font.Gotham; e.TextSize = 11
+        e.Text = "  暂无 NPC"; e.TextXAlignment = Enum.TextXAlignment.Left
+        e.BorderSizePixel = 0; e.Parent = pages.tp
+        Instance.new("UICorner", e).CornerRadius = UDim.new(0, 10)
+        table.insert(tpNpcList, e)
+        y = y + 34
     else
-        for _, npcModel in ipairs(npcList) do
-            local btn = newTpButton(pageTp, y, "  📍  " .. npcModel.Name,
-                Color3.fromRGB(0, 130, 100), function()
-                    if not npcModel.Parent then return end
-                    local hrp = npcModel:FindFirstChild("HumanoidRootPart")
-                    if hrp then teleportToHrp(hrp) end
-                end)
-            table.insert(tpNpcBtns, btn)
-            y = y + 34
+        for _, m in ipairs(nl) do
+            local b = tpBtn(pages.tp, y, "📍", m.Name, T.card, function()
+                if not m.Parent then return end
+                local hrp = m:FindFirstChild("HumanoidRootPart")
+                if hrp then tpTo(hrp) end
+            end)
+            table.insert(tpNpcList, b)
+            y = y + 38
         end
     end
 
-    pageTp.CanvasSize = UDim2.new(0, 0, 0, y + 12)
+    pages.tp.CanvasSize = UDim2.new(0, 0, 0, y + 12)
 end
 
-tabSkill.MouseButton1Click:Connect(function()    selectTab(tabSkill,    pageSkill)    end)
-tabFish.MouseButton1Click:Connect(function()     selectTab(tabFish,     pageFish)     end)
-tabEsp.MouseButton1Click:Connect(function()      selectTab(tabEsp,      pageEsp)      end)
-tabTp.MouseButton1Click:Connect(function()
-    selectTab(tabTp, pageTp)
-    refreshTeleportList()
-end)
-tabTheme.MouseButton1Click:Connect(function()    selectTab(tabTheme,    pageTheme)    end)
-tabFun.MouseButton1Click:Connect(function()      selectTab(tabFun,      pageFun)      end)
-tabSettings.MouseButton1Click:Connect(function() selectTab(tabSettings, pageSettings) end)
-tabAI.MouseButton1Click:Connect(function()       selectTab(tabAI,       pageAI)       end)
+-- ═════════════════════════════════════════════════════════════════════
+--  ⑤  主题页
+-- ═════════════════════════════════════════════════════════════════════
+local yTheme = header(pages.theme, "🎨", "霓虹配色", "COLOR THEMES")
+local themeBtns = {}
 
-selectTab(tabSkill, pageSkill)
+for i, th in ipairs(THEMES) do
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.new(1, 0, 0, 44)
+    btn.Position = UDim2.new(0, 0, 0, yTheme + 4 + (i-1)*50)
+    btn.BackgroundColor3 = T.card
+    btn.BorderSizePixel = 0
+    btn.Text = ""
+    btn.AutoButtonColor = false
+    btn.Parent = pages.theme
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 14)
+    local bS = Instance.new("UIStroke", btn)
+    bS.Color = T.b; bS.Thickness = 1; bS.Transparency = 0.7
+
+    local sw1 = Instance.new("Frame")
+    sw1.Size = UDim2.new(0, 18, 0, 18)
+    sw1.Position = UDim2.new(0, 14, 0.5, -9)
+    sw1.BackgroundColor3 = th.a
+    sw1.BorderSizePixel = 0
+    sw1.Parent = btn
+    Instance.new("UICorner", sw1).CornerRadius = UDim.new(1, 0)
+
+    local sw2 = Instance.new("Frame")
+    sw2.Size = UDim2.new(0, 18, 0, 18)
+    sw2.Position = UDim2.new(0, 30, 0.5, -9)
+    sw2.BackgroundColor3 = th.b
+    sw2.BorderSizePixel = 0
+    sw2.Parent = btn
+    Instance.new("UICorner", sw2).CornerRadius = UDim.new(1, 0)
+
+    local sw3 = Instance.new("Frame")
+    sw3.Size = UDim2.new(0, 18, 0, 18)
+    sw3.Position = UDim2.new(0, 46, 0.5, -9)
+    sw3.BackgroundColor3 = th.c
+    sw3.BorderSizePixel = 0
+    sw3.Parent = btn
+    Instance.new("UICorner", sw3).CornerRadius = UDim.new(1, 0)
+
+    local nm = Instance.new("TextLabel")
+    nm.Size = UDim2.new(1, -90, 1, 0)
+    nm.Position = UDim2.new(0, 72, 0, 0)
+    nm.BackgroundTransparency = 1
+    nm.Text = th.name
+    nm.TextColor3 = TXT
+    nm.Font = Enum.Font.GothamBold
+    nm.TextSize = 13
+    nm.TextXAlignment = Enum.TextXAlignment.Left
+    nm.Parent = btn
+
+    btn.MouseEnter:Connect(function()
+        Tween:Create(btn, TweenInfo.new(0.15), { BackgroundColor3 = T.card:Lerp(th.a, 0.15) }):Play()
+    end)
+    btn.MouseLeave:Connect(function()
+        Tween:Create(btn, TweenInfo.new(0.15), { BackgroundColor3 = T.card }):Play()
+    end)
+    table.insert(themeBtns, { btn = btn, th = th })
+end
+
+local function applyTheme(th)
+    T.a = th.a; T.b = th.b; T.c = th.c
+    T.bg = th.bg; T.card = th.card
+
+    Tween:Create(panel, TweenInfo.new(0.35), { BackgroundColor3 = T.bg }):Play()
+    Tween:Create(strokeOuter, TweenInfo.new(0.35), { Color = T.a }):Play()
+    Tween:Create(strokeInner, TweenInfo.new(0.35), { Color = T.b }):Play()
+    Tween:Create(navBar, TweenInfo.new(0.35), { BackgroundColor3 = T.card }):Play()
+    Tween:Create(navStroke, TweenInfo.new(0.35), { Color = T.b }):Play()
+    Tween:Create(brandIco, TweenInfo.new(0.35), { TextColor3 = T.a }):Play()
+    Tween:Create(deco, TweenInfo.new(0.35), { BackgroundColor3 = T.a }):Play()
+
+    for _, b in ipairs(navBtns) do
+        if b.id == TABS[activeIdx].id then
+            Tween:Create(b.circle, TweenInfo.new(0.35), { BackgroundColor3 = T.a }):Play()
+            Tween:Create(b.stroke, TweenInfo.new(0.35), { Color = T.a }):Play()
+            Tween:Create(b.label, TweenInfo.new(0.35), { TextColor3 = T.a }):Play()
+        else
+            Tween:Create(b.circle, TweenInfo.new(0.35), { BackgroundColor3 = T.bg }):Play()
+        end
+    end
+
+    for _, item in ipairs(themedToggleList) do
+        if S[item.key] then
+            item.track.BackgroundColor3 = T.a
+            item.stroke.Color = T.a
+            item.knob.BackgroundColor3 = Color3.new(1,1,1)
+        else
+            item.track.BackgroundColor3 = T.bg
+            item.stroke.Color = TXT_MUTED
+        end
+    end
+
+    for _, t in ipairs(themedTitleList) do
+        if t and t.Parent then t.TextColor3 = TXT end
+    end
+
+    if sellIntRow then
+        Tween:Create(sellIntRow.stroke, TweenInfo.new(0.35), { Color = T.b }):Play()
+        Tween:Create(sellIntRow.boxStroke, TweenInfo.new(0.35), { Color = T.a }):Play()
+        sellIntRow.btn.BackgroundColor3 = T.a
+    end
+    if buyIntRow then
+        Tween:Create(buyIntRow.stroke, TweenInfo.new(0.35), { Color = T.b }):Play()
+        Tween:Create(buyIntRow.boxStroke, TweenInfo.new(0.35), { Color = T.a }):Play()
+        buyIntRow.btn.BackgroundColor3 = T.a
+    end
+    if infoS then Tween:Create(infoS, TweenInfo.new(0.35), { Color = T.b }):Play() end
+
+    for _, p in pairs(pages) do
+        p.ScrollBarImageColor3 = T.a
+    end
+end
+
+for _, en in ipairs(themeBtns) do
+    en.btn.MouseButton1Click:Connect(function()
+        pcall(function() sClick:Play() end)
+        applyTheme(en.th)
+    end)
+end
+
+-- ═════════════════════════════════════════════════════════════════════
+--  ⑥  设置页
+-- ═════════════════════════════════════════════════════════════════════
+local yCfg = header(pages.cfg, "⚙", "界面设置", "SETTINGS")
+
+local scaleLbl = Instance.new("TextLabel")
+scaleLbl.Size = UDim2.new(1, 0, 0, 26)
+scaleLbl.Position = UDim2.new(0, 0, 0, yCfg + 4)
+scaleLbl.BackgroundTransparency = 1
+scaleLbl.Text = string.format("🔍  当前缩放 · %d%%", math.floor(C.UI_SCALE*100+0.5))
+scaleLbl.TextColor3 = TXT
+scaleLbl.Font = Enum.Font.GothamBold
+scaleLbl.TextSize = 13
+scaleLbl.TextXAlignment = Enum.TextXAlignment.Left
+scaleLbl.Parent = pages.cfg
+
+local presetNames = { "75%", "100%", "125%", "150%" }
+local presetVals  = { 0.75, 1.00, 1.25, 1.50 }
+for i = 1, 4 do
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.new(0.235, 0, 0, 36)
+    btn.Position = UDim2.new(0.01 + (i-1)*0.247, 0, 0, yCfg + 36)
+    btn.BackgroundColor3 = T.card
+    btn.Text = presetNames[i]
+    btn.TextColor3 = TXT
+    btn.Font = Enum.Font.GothamBold
+    btn.TextSize = 12
+    btn.AutoButtonColor = false
+    btn.BorderSizePixel = 0
+    btn.Parent = pages.cfg
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 10)
+    local bs = Instance.new("UIStroke", btn)
+    bs.Color = T.b; bs.Thickness = 1; bs.Transparency = 0.7
+
+    btn.MouseButton1Click:Connect(function()
+        pcall(function() sClick:Play() end)
+        local sc = math.clamp(presetVals[i], C.UI_SCALE_MIN, C.UI_SCALE_MAX)
+        C.UI_SCALE = sc
+        Tween:Create(pScale, TweenInfo.new(0.25, Enum.EasingStyle.Back), { Scale = sc }):Play()
+        scaleLbl.Text = string.format("🔍  当前缩放 · %d%%", math.floor(sc*100+0.5))
+    end)
+end
+
+local minusB = Instance.new("TextButton")
+minusB.Size = UDim2.new(0.485, 0, 0, 36)
+minusB.Position = UDim2.new(0.01, 0, 0, yCfg + 80)
+minusB.BackgroundColor3 = T.card
+minusB.Text = "− 缩小"
+minusB.TextColor3 = TXT
+minusB.Font = Enum.Font.GothamBold
+minusB.TextSize = 13
+minusB.AutoButtonColor = false
+minusB.BorderSizePixel = 0
+minusB.Parent = pages.cfg
+Instance.new("UICorner", minusB).CornerRadius = UDim.new(0, 10)
+local mbS = Instance.new("UIStroke", minusB)
+mbS.Color = T.b; mbS.Thickness = 1; mbS.Transparency = 0.7
+
+local plusB = Instance.new("TextButton")
+plusB.Size = UDim2.new(0.485, 0, 0, 36)
+plusB.Position = UDim2.new(0.505, 0, 0, yCfg + 80)
+plusB.BackgroundColor3 = T.card
+plusB.Text = "放大  +"
+plusB.TextColor3 = TXT
+plusB.Font = Enum.Font.GothamBold
+plusB.TextSize = 13
+plusB.AutoButtonColor = false
+plusB.BorderSizePixel = 0
+plusB.Parent = pages.cfg
+Instance.new("UICorner", plusB).CornerRadius = UDim.new(0, 10)
+local pbS = Instance.new("UIStroke", plusB)
+pbS.Color = T.b; pbS.Thickness = 1; pbS.Transparency = 0.7
+
+local function setScale(sc)
+    sc = math.clamp(sc, C.UI_SCALE_MIN, C.UI_SCALE_MAX)
+    C.UI_SCALE = sc
+    Tween:Create(pScale, TweenInfo.new(0.25, Enum.EasingStyle.Back), { Scale = sc }):Play()
+    scaleLbl.Text = string.format("🔍  当前缩放 · %d%%", math.floor(sc*100+0.5))
+end
+minusB.MouseButton1Click:Connect(function()
+    pcall(function() sClick:Play() end); setScale(C.UI_SCALE - 0.1)
+end)
+plusB.MouseButton1Click:Connect(function()
+    pcall(function() sClick:Play() end); setScale(C.UI_SCALE + 0.1)
+end)
+
+local resetB = Instance.new("TextButton")
+resetB.Size = UDim2.new(1, 0, 0, 36)
+resetB.Position = UDim2.new(0, 0, 0, yCfg + 124)
+resetB.BackgroundColor3 = T.card
+resetB.Text = "🔄  恢复默认 · 100%"
+resetB.TextColor3 = T.a
+resetB.Font = Enum.Font.GothamBold
+resetB.TextSize = 12
+resetB.AutoButtonColor = false
+resetB.BorderSizePixel = 0
+resetB.Parent = pages.cfg
+Instance.new("UICorner", resetB).CornerRadius = UDim.new(0, 10)
+local rbS = Instance.new("UIStroke", resetB)
+rbS.Color = T.a; rbS.Thickness = 1; rbS.Transparency = 0.5
+resetB.MouseButton1Click:Connect(function()
+    pcall(function() sClick:Play() end); setScale(1.0)
+end)
+
+-- ═════════════════════════════════════════════════════════════════════
+--  ⑦  AI 助手页
+-- ═════════════════════════════════════════════════════════════════════
+local yAI = header(pages.ai, "🤖", "AI 助手", "AI ASSISTANT")
+
+local chatScroll = Instance.new("ScrollingFrame")
+chatScroll.Size = UDim2.new(1, 0, 1, -yAI - 48)
+chatScroll.Position = UDim2.new(0, 0, 0, yAI + 4)
+chatScroll.BackgroundColor3 = T.card
+chatScroll.BorderSizePixel = 0
+chatScroll.ScrollBarThickness = 3
+chatScroll.ScrollBarImageColor3 = T.a
+chatScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+chatScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+chatScroll.ScrollingDirection = Enum.ScrollingDirection.Y
+chatScroll.Parent = pages.ai
+Instance.new("UICorner", chatScroll).CornerRadius = UDim.new(0, 14)
+local csS = Instance.new("UIStroke", chatScroll)
+csS.Color = T.b; csS.Thickness = 1; csS.Transparency = 0.6
+
+local chatLayout = Instance.new("UIListLayout", chatScroll)
+chatLayout.Padding = UDim.new(0, 6)
+chatLayout.SortOrder = Enum.SortOrder.LayoutOrder
+
+local chatPad = Instance.new("UIPadding", chatScroll)
+chatPad.PaddingTop = UDim.new(0, 8); chatPad.PaddingBottom = UDim.new(0, 8)
+chatPad.PaddingLeft = UDim.new(0, 8); chatPad.PaddingRight = UDim.new(0, 8)
+
+local chatInput = Instance.new("TextBox")
+chatInput.Size = UDim2.new(0.72, 0, 0, 36)
+chatInput.Position = UDim2.new(0, 0, 1, -40)
+chatInput.BackgroundColor3 = T.card
+chatInput.TextColor3 = TXT
+chatInput.PlaceholderColor3 = TXT_MUTED
+chatInput.Font = Enum.Font.Gotham
+chatInput.TextSize = 12
+chatInput.Text = ""
+chatInput.PlaceholderText = "说点什么…"
+chatInput.ClearTextOnFocus = false
+chatInput.BorderSizePixel = 0
+chatInput.Parent = pages.ai
+Instance.new("UICorner", chatInput).CornerRadius = UDim.new(0, 12)
+local ciS = Instance.new("UIStroke", chatInput)
+ciS.Color = T.b; ciS.Thickness = 1; ciS.Transparency = 0.6
+
+local sendB = Instance.new("TextButton")
+sendB.Size = UDim2.new(0.26, 0, 0, 36)
+sendB.Position = UDim2.new(0.74, 0, 1, -40)
+sendB.BackgroundColor3 = T.a
+sendB.Text = "发送 ▶"
+sendB.TextColor3 = Color3.new(1,1,1)
+sendB.Font = Enum.Font.GothamBold
+sendB.TextSize = 12
+sendB.AutoButtonColor = false
+sendB.BorderSizePixel = 0
+sendB.Parent = pages.ai
+Instance.new("UICorner", sendB).CornerRadius = UDim.new(0, 12)
+
+local function chatAdd(text, isUser)
+    local bbl = Instance.new("Frame")
+    bbl.BackgroundTransparency = 1
+    bbl.Size = UDim2.new(1, 0, 0, 0)
+    bbl.AutomaticSize = Enum.AutomaticSize.Y
+    bbl.Parent = chatScroll
+
+    local box = Instance.new("Frame")
+    box.BackgroundColor3 = isUser and T.a or T.bg
+    box.BorderSizePixel = 0
+    box.AutomaticSize = Enum.AutomaticSize.Y
+    box.Size = isUser and UDim2.new(0.85, 0, 0, 0) or UDim2.new(1, 0, 0, 0)
+    box.Position = isUser and UDim2.new(1, 0, 0, 0) or UDim2.new(0, 0, 0, 0)
+    box.AnchorPoint = isUser and Vector2.new(1, 0) or Vector2.new(0, 0)
+    box.Parent = bbl
+    Instance.new("UICorner", box).CornerRadius = UDim.new(0, 12)
+
+    local bS = Instance.new("UIStroke", box)
+    bS.Color = isUser and T.a or T.b
+    bS.Thickness = 1
+    bS.Transparency = 0.4
+
+    local pad = Instance.new("UIPadding", box)
+    pad.PaddingTop = UDim.new(0, 8); pad.PaddingBottom = UDim.new(0, 8)
+    pad.PaddingLeft = UDim.new(0, 12); pad.PaddingRight = UDim.new(0, 12)
+
+    local lbl = Instance.new("TextLabel")
+    lbl.BackgroundTransparency = 1
+    lbl.Size = UDim2.new(1, 0, 0, 0)
+    lbl.AutomaticSize = Enum.AutomaticSize.Y
+    lbl.Text = text
+    lbl.TextColor3 = isUser and Color3.new(1,1,1) or TXT
+    lbl.Font = Enum.Font.Gotham
+    lbl.TextSize = 12
+    lbl.TextWrapped = true
+    lbl.TextXAlignment = Enum.TextXAlignment.Left
+    lbl.TextYAlignment = Enum.TextYAlignment.Top
+    lbl.Parent = box
+
+    task.defer(function()
+        task.wait()
+        chatScroll.CanvasPosition = Vector2.new(0, math.max(0, chatLayout.AbsoluteContentSize.Y))
+    end)
+    return bbl
+end
+
+local function contains(s, sub) return string.find(s, sub, 1, true) ~= nil end
+local function aiLocal(raw)
+    local t = string.lower(raw)
+    if contains(t,"帮助") or contains(t,"help") then
+        return "试试这些：\n• 开/关技能\n• 开/关卖鱼\n• 开/关买饵\n• 开/关ESP\n• 传送 <名字>\n• 查状态\n• 清空"
+    end
+    if contains(t,"清空") or contains(t,"clear") then
+        for _, c in ipairs(chatScroll:GetChildren()) do
+            if c:IsA("Frame") then c:Destroy() end
+        end
+        return "已清空 ✨"
+    end
+    if contains(t,"你好") or contains(t,"hello") or contains(t,"hi") then
+        return "你好～我是 Sigma ◆"
+    end
+    if contains(t,"时间") or contains(t,"time") then return "⏰ " .. RT.clock end
+    if contains(t,"状态") or contains(t,"status") then
+        return string.format(
+            "◆ 状态\n技能：%s\n卖鱼：%s\n买饵：%s\n鱼条：%s\n玩家ESP：%s\nNPC ESP：%s",
+            S.AS and "开" or "关", S.ASell and "开" or "关", S.ABuy and "开" or "关",
+            S.BL and "开" or "关", S.PE and "开" or "关", S.NE and "开" or "关"
+        )
+    end
+    if contains(t,"传送") or contains(t,"tp ") then
+        local target = raw:match("[传送tp ]+([%w_]+)")
+        if not target or target == "" then return "用法：传送 <名字>" end
+        for _, p in ipairs(Players:GetPlayers()) do
+            if p ~= LP and string.find(string.lower(p.Name), string.lower(target), 1, true) then
+                if p.Character then
+                    local hrp = p.Character:FindFirstChild("HumanoidRootPart")
+                    local my = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
+                    if hrp and my then
+                        my.CFrame = hrp.CFrame * CFrame.new(0, 0, -C.TP_OFFSET)
+                        return "✓ 已传送到 " .. p.Name
+                    end
+                end
+            end
+        end
+        return "找不到 " .. target
+    end
+    if contains(t,"技能") then
+        if contains(t,"关") then setToggleState("AS", false); return "技能 OFF" end
+        if contains(t,"开") then setToggleState("AS", true);  return "技能 ON" end
+    end
+    if contains(t,"卖鱼") then
+        if contains(t,"关") then setToggleState("ASell", false); return "卖鱼 OFF" end
+        if contains(t,"开") then setToggleState("ASell", true);  return "卖鱼 ON" end
+    end
+    if contains(t,"买饵") or contains(t,"鱼饵") or contains(t,"买鱼饵") then
+        if contains(t,"关") then setToggleState("ABuy", false); return "买饵 OFF" end
+        if contains(t,"开") then setToggleState("ABuy", true);  return "买饵 ON" end
+    end
+    if contains(t,"esp") then
+        if contains(t,"关") then
+            setToggleState("PE", false); setToggleState("NE", false); return "ESP OFF"
+        end
+        if contains(t,"开") then
+            setToggleState("PE", true); setToggleState("NE", true); return "ESP ON"
+        end
+    end
+    return "没听懂「" .. raw .. "」～ 输入「帮助」"
+end
+
+local httpFn, httpName = nil, "NONE"
+if syn and syn.request then httpFn = syn.request; httpName = "syn.request"
+elseif http and http.request then httpFn = http.request; httpName = "http.request"
+elseif request then httpFn = request; httpName = "request"
+elseif http_request then httpFn = http_request; httpName = "http_request" end
+print("◆ [Sigma Hub v7.2] HTTP: " .. httpName)
+
+local aiHist = {}
+
+local function callAI(msg)
+    if not httpFn then return nil, "执行器不支持 HTTP" end
+    if not AI.API_KEY or AI.API_KEY == "" or AI.API_KEY == "在这里填入你的新API-Key" then
+        return nil, "未配置 API Key"
+    end
+    local msgs = { { role="system", content=AI.PROMPT } }
+    for _, m in ipairs(aiHist) do table.insert(msgs, m) end
+    table.insert(msgs, { role="user", content=msg })
+
+    local ok1, body = pcall(function()
+        return HS:JSONEncode({ model=AI.MODEL, messages=msgs, temperature=0.7, max_tokens=500 })
+    end)
+    if not ok1 then return nil, "编码失败" end
+
+    local ok2, resp = pcall(function()
+        return httpFn({
+            Url = AI.API_URL, Method = "POST",
+            Headers = { ["Content-Type"]="application/json",
+                        ["Authorization"]="Bearer "..AI.API_KEY },
+            Body = body,
+        })
+    end)
+    if not ok2 then return nil, "请求失败" end
+    if not resp or not resp.Body or resp.Body == "" then return nil, "响应为空" end
+
+    local ok3, data = pcall(function() return HS:JSONDecode(resp.Body) end)
+    if not ok3 then return nil, "解析失败" end
+
+    if data.choices and data.choices[1] and data.choices[1].message then
+        local r = data.choices[1].message.content
+        table.insert(aiHist, { role="user", content=msg })
+        table.insert(aiHist, { role="assistant", content=r })
+        while #aiHist > AI.MAX_HISTORY * 2 do table.remove(aiHist, 1) end
+        return r
+    end
+    if data.error and data.error.message then return nil, "API: "..data.error.message end
+    return nil, "未知响应"
+end
+
+local function aiRespond(raw)
+    local kws = {"帮助","help","清空","clear","状态","status","传送","查玩家",
+                 "开技能","关技能","开卖鱼","关卖鱼","开买饵","关买饵","开鱼饵","关鱼饵",
+                 "开esp","关esp"}
+    local lower = string.lower(raw)
+    for _, kw in ipairs(kws) do
+        if string.find(lower, string.lower(kw), 1, true) then
+            return aiLocal(raw)
+        end
+    end
+    local r, err = callAI(raw)
+    if r then return r end
+    if AI.FALLBACK then return aiLocal(raw) .. "\n\n[!] " .. (err or "?") end
+    return "AI 不可用：" .. (err or "?")
+end
+
+local function handleSend()
+    local txt = chatInput.Text
+    if not txt or txt == "" then return end
+    chatInput.Text = ""
+    pcall(function() sClick:Play() end)
+    chatAdd(txt, true)
+    local thinking = chatAdd("● 正在思考…", false)
+    thinking.Name = "Thinking"
+    task.wait(0.15)
+    local reply = aiRespond(txt)
+    local t = chatScroll:FindFirstChild("Thinking")
+    if t then t:Destroy() end
+    chatAdd(reply, false)
+end
+
+sendB.MouseButton1Click:Connect(handleSend)
+chatInput.FocusLost:Connect(function(enter) if enter then handleSend() end end)
+
+chatAdd("你好～我是 Sigma ◆\n输入「帮助」查看我能做什么～", false)
+
+-- ═════════════════════════════════════════════════════════════════════
+--  🎬  初始化（无入场动画）
+-- ═════════════════════════════════════════════════════════════════════
+selectTab("skill")
 
 task.defer(function()
     task.wait(0.3)
-    refreshTeleportList()
+    refreshTp()
 end)
 
 task.spawn(function()
-    while hubGui.Parent do
-        task.wait(CFG.TP_REFRESH)
-        if pageTp.Visible then
-            pcall(refreshTeleportList)
-        end
+    while gui.Parent do
+        task.wait(C.TP_REFRESH)
+        if pages.tp.Visible then pcall(refreshTp) end
     end
 end)
 
 local minimized = false
-minBtn.MouseButton1Click:Connect(function()
+minB.MouseButton1Click:Connect(function()
     pcall(function() sClick:Play() end)
     minimized = not minimized
     if minimized then
-        sidebar.Visible = false
-        if activePage then activePage.Visible = false end
-        TweenService:Create(panel, TweenInfo.new(0.28, Enum.EasingStyle.Quart, Enum.EasingDirection.Out),
-            { Size = MIN_SIZE }):Play()
-        minBtn.Text = "+"
+        navBar.Visible = false
+        content.Visible = false
+        Tween:Create(panel, TweenInfo.new(0.2, Enum.EasingStyle.Quart, Enum.EasingDirection.Out),
+            { Size = UDim2.new(0, PW, 0, 50) }):Play()
+        minB.Text = "+"
     else
-        TweenService:Create(panel, TweenInfo.new(0.28, Enum.EasingStyle.Quart, Enum.EasingDirection.Out),
-            { Size = FULL_SIZE }):Play()
-        task.wait(0.14)
-        sidebar.Visible = true
-        if activePage then activePage.Visible = true end
-        minBtn.Text = "—"
+        Tween:Create(panel, TweenInfo.new(0.2, Enum.EasingStyle.Quart, Enum.EasingDirection.Out),
+            { Size = UDim2.new(0, PW, 0, PH) }):Play()
+        task.wait(0.12)
+        navBar.Visible = true
+        content.Visible = true
+        minB.Text = "—"
     end
 end)
 
-closeBtn.MouseButton1Click:Connect(function()
-    pcall(function() sDelete:Play() end)
-    for k in pairs(State) do
-        if type(State[k]) == "boolean" then State[k] = false end
+closeB.MouseButton1Click:Connect(function()
+    pcall(function() sDel:Play() end)
+    for k in pairs(S) do
+        if type(S[k]) == "boolean" then S[k] = false end
     end
-    pcall(function() hubGui:Destroy() end)
+    pcall(function() gui:Destroy() end)
     if espGui then pcall(function() espGui:Destroy() end) end
 end)
 
-TweenService:Create(panel, TweenInfo.new(0.55, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
-    Position = PANEL_POS
-}):Play()
-
--- =====================================================================
---  ESP 系统
--- =====================================================================
+-- ═════════════════════════════════════════════════════════════════════
+--  ESP
+-- ═════════════════════════════════════════════════════════════════════
 espGui = Instance.new("ScreenGui")
-espGui.Name           = "SigmaHub_ESP"
-espGui.ResetOnSpawn   = false
+espGui.Name = "SigmaHubNeon_ESP"
+espGui.ResetOnSpawn = false
 espGui.IgnoreGuiInset = true
-espGui.DisplayOrder   = 10
+espGui.DisplayOrder = 10
 pcall(function() espGui.Parent = CoreGui end)
 if not espGui.Parent then espGui.Parent = LP:WaitForChild("PlayerGui") end
 
 local ESP = {
-    PlayerColor = Color3.fromRGB(0, 255, 130),
-    NpcColor    = Color3.fromRGB(255, 100, 100),
-    MaxDistance = 500,
-    Entries     = {},
-    NpcCache    = {},
-    LastNpcScan = 0,
+    PC = Color3.fromRGB(0, 255, 130),
+    NC = Color3.fromRGB(255, 100, 100),
+    MaxD = 500,
+    Entries = {},
+    NpcCache = {},
+    LastScan = 0,
 }
 
-local function createESPEntry(model, color, kind)
-    local frame = Instance.new("Frame")
-    frame.BackgroundTransparency = 1
-    frame.BorderSizePixel        = 0
-    frame.Size                   = UDim2.new(0, 140, 0, 38)
-    frame.AnchorPoint            = Vector2.new(0.5, 1)
-    frame.Visible                = false
-    frame.ZIndex                 = 2
-    frame.Parent                 = espGui
+local function makeESP(m, color)
+    local fr = Instance.new("Frame")
+    fr.BackgroundTransparency = 1
+    fr.BorderSizePixel = 0
+    fr.Size = UDim2.new(0, 140, 0, 38)
+    fr.AnchorPoint = Vector2.new(0.5, 1)
+    fr.Visible = false
+    fr.ZIndex = 2
+    fr.Parent = espGui
 
-    local nameLabel = Instance.new("TextLabel")
-    nameLabel.Size                   = UDim2.new(1, 0, 0, 20)
-    nameLabel.BackgroundTransparency = 1
-    nameLabel.TextColor3             = color
-    nameLabel.Font                   = Enum.Font.GothamBold
-    nameLabel.TextSize               = 13
-    nameLabel.TextStrokeTransparency = 0.4
-    nameLabel.TextStrokeColor3       = Color3.new(0, 0, 0)
-    nameLabel.Text                   = model.Name
-    nameLabel.ZIndex                 = 3
-    nameLabel.Parent                 = frame
+    local nl = Instance.new("TextLabel")
+    nl.Size = UDim2.new(1, 0, 0, 18)
+    nl.BackgroundTransparency = 1
+    nl.TextColor3 = color
+    nl.Font = Enum.Font.GothamBold
+    nl.TextSize = 13
+    nl.TextStrokeTransparency = 0.3
+    nl.TextStrokeColor3 = Color3.new(0, 0, 0)
+    nl.Text = m.Name
+    nl.ZIndex = 3
+    nl.Parent = fr
 
-    local distLabel = Instance.new("TextLabel")
-    distLabel.Size                   = UDim2.new(1, 0, 0, 16)
-    distLabel.Position               = UDim2.new(0, 0, 0, 20)
-    distLabel.BackgroundTransparency = 1
-    distLabel.TextColor3             = color
-    distLabel.Font                   = Enum.Font.GothamMedium
-    distLabel.TextSize               = 11
-    distLabel.TextStrokeTransparency = 0.4
-    distLabel.TextStrokeColor3       = Color3.new(0, 0, 0)
-    distLabel.Text                   = "0m"
-    distLabel.ZIndex                 = 3
-    distLabel.Parent                 = frame
+    local dl = Instance.new("TextLabel")
+    dl.Size = UDim2.new(1, 0, 0, 14)
+    dl.Position = UDim2.new(0, 0, 0, 20)
+    dl.BackgroundTransparency = 1
+    dl.TextColor3 = color
+    dl.Font = Enum.Font.GothamBold
+    dl.TextSize = 11
+    dl.TextStrokeTransparency = 0.3
+    dl.TextStrokeColor3 = Color3.new(0, 0, 0)
+    dl.Text = "0m"
+    dl.ZIndex = 3
+    dl.Parent = fr
 
-    local highlight = Instance.new("Highlight")
-    highlight.FillTransparency    = 1
-    highlight.OutlineColor        = color
-    highlight.OutlineTransparency = 0
-    highlight.DepthMode           = Enum.HighlightDepthMode.AlwaysOnTop
-    highlight.Adornee             = model
-    highlight.Parent              = espGui
+    local hl = Instance.new("Highlight")
+    hl.FillTransparency = 1
+    hl.OutlineColor = color
+    hl.OutlineTransparency = 0
+    hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+    hl.Adornee = m
+    hl.Parent = espGui
 
-    return {
-        frame     = frame,
-        name      = nameLabel,
-        dist      = distLabel,
-        highlight = highlight,
-        kind      = kind,
-    }
+    return { fr = fr, nl = nl, dl = dl, hl = hl }
 end
 
-local function removeESPEntry(model)
-    local entry = ESP.Entries[model]
-    if not entry then return end
-    if entry.frame and entry.frame.Parent then entry.frame:Destroy() end
-    if entry.highlight and entry.highlight.Parent then entry.highlight:Destroy() end
-    ESP.Entries[model] = nil
+local function killESP(m)
+    local e = ESP.Entries[m]
+    if not e then return end
+    if e.fr and e.fr.Parent then e.fr:Destroy() end
+    if e.hl and e.hl.Parent then e.hl:Destroy() end
+    ESP.Entries[m] = nil
 end
 
 RunService.RenderStepped:Connect(function()
     local cam = workspace.CurrentCamera
     if not cam then return end
+    local ok = {}
 
-    local validModels = {}
-
-    if State.PlayerESP then
-        for _, plr in ipairs(Players:GetPlayers()) do
-            if plr ~= LP then
-                local char = plr.Character
-                if char then
-                    local hum = char:FindFirstChildOfClass("Humanoid")
-                    local hrp = char:FindFirstChild("HumanoidRootPart")
-                    if hum and hrp and hum.Health > 0 then
-                        validModels[char] = { kind = "player", color = ESP.PlayerColor, name = plr.Name }
+    if S.PE then
+        for _, p in ipairs(Players:GetPlayers()) do
+            if p ~= LP then
+                local c = p.Character
+                if c then
+                    local h = c:FindFirstChildOfClass("Humanoid")
+                    local r = c:FindFirstChild("HumanoidRootPart")
+                    if h and r and h.Health > 0 then
+                        ok[c] = { color = ESP.PC, name = p.Name }
                     end
                 end
             end
         end
     end
 
-    if State.NpcESP then
+    if S.NE then
         local now = tick()
-        if now - ESP.LastNpcScan > 1 then
+        if now - ESP.LastScan > 1 then
             local raw = {}
-            for _, obj in ipairs(workspace:GetDescendants()) do
-                if obj:IsA("Model") and isEligibleNpc(obj) then
-                    table.insert(raw, obj)
-                end
+            for _, o in ipairs(workspace:GetDescendants()) do
+                if o:IsA("Model") and isOkNpc(o) then table.insert(raw, o) end
             end
-            ESP.NpcCache = dedupeNpcsByName(raw)
-            ESP.LastNpcScan = now
+            ESP.NpcCache = dedupe(raw)
+            ESP.LastScan = now
         end
-        for _, npc in ipairs(ESP.NpcCache) do
-            if npc.Parent then
-                local hum = npc:FindFirstChildOfClass("Humanoid")
-                if hum and hum.Health > 0 then
-                    validModels[npc] = { kind = "npc", color = ESP.NpcColor, name = npc.Name }
+        for _, n in ipairs(ESP.NpcCache) do
+            if n.Parent then
+                local h = n:FindFirstChildOfClass("Humanoid")
+                if h and h.Health > 0 then
+                    ok[n] = { color = ESP.NC, name = n.Name }
                 end
             end
         end
     end
 
-    for model, entry in pairs(ESP.Entries) do
-        if not validModels[model] then removeESPEntry(model) end
+    for m in pairs(ESP.Entries) do
+        if not ok[m] then killESP(m) end
     end
 
-    for model, info in pairs(validModels) do
-        local entry = ESP.Entries[model]
-        if not entry then
-            entry = createESPEntry(model, info.color, info.kind)
-            ESP.Entries[model] = entry
+    for m, info in pairs(ok) do
+        local e = ESP.Entries[m]
+        if not e then
+            e = makeESP(m, info.color)
+            ESP.Entries[m] = e
         end
-
-        local hrp = model:FindFirstChild("HumanoidRootPart")
+        local hrp = m:FindFirstChild("HumanoidRootPart")
         if not hrp then
-            entry.frame.Visible = false
-            entry.highlight.Enabled = false
+            e.fr.Visible = false; e.hl.Enabled = false
         else
-            local pos3D = hrp.Position
-            local screenPos, onScreen = cam:WorldToViewportPoint(pos3D)
-            local distance = (cam.CFrame.Position - pos3D).Magnitude
-
-            if not onScreen or screenPos.Z <= 0 or distance > ESP.MaxDistance then
-                entry.frame.Visible = false
-                entry.highlight.Enabled = false
+            local sp, on = cam:WorldToViewportPoint(hrp.Position)
+            local d = (cam.CFrame.Position - hrp.Position).Magnitude
+            if not on or sp.Z <= 0 or d > ESP.MaxD then
+                e.fr.Visible = false; e.hl.Enabled = false
             else
-                entry.frame.Position = UDim2.new(0, screenPos.X, 0, screenPos.Y)
-                entry.frame.Visible = true
-                entry.highlight.Enabled = true
-                entry.name.Text = info.name
-                entry.dist.Text = string.format("%.0fm", distance)
+                e.fr.Position = UDim2.new(0, sp.X, 0, sp.Y)
+                e.fr.Visible = true; e.hl.Enabled = true
+                e.nl.Text = info.name
+                e.dl.Text = string.format("%.0fm", d)
             end
         end
     end
 end)
 
--- =====================================================================
+-- ═════════════════════════════════════════════════════════════════════
 --  后台引擎
--- =====================================================================
+-- ═════════════════════════════════════════════════════════════════════
 task.spawn(function()
-    while hubGui.Parent do
+    while gui.Parent do
         task.wait(0.45)
         pcall(function()
-            local function press(key)
-                VirtualInputManager:SendKeyEvent(true,  key, false, game)
+            local function press(k)
+                VIM:SendKeyEvent(true, k, false, game)
                 task.wait(0.05)
-                VirtualInputManager:SendKeyEvent(false, key, false, game)
+                VIM:SendKeyEvent(false, k, false, game)
             end
-            if State.AutoSkill or State.SkillZ then press(Enum.KeyCode.Z) end
-            if State.AutoSkill or State.SkillX then press(Enum.KeyCode.X) end
-            if State.AutoSkill or State.SkillC then press(Enum.KeyCode.C) end
-            if State.AutoSkill or State.SkillV then press(Enum.KeyCode.V) end
+            if S.AS or S.SZ then press(Enum.KeyCode.Z) end
+            if S.AS or S.SX then press(Enum.KeyCode.X) end
+            if S.AS or S.SC then press(Enum.KeyCode.C) end
+            if S.AS or S.SV then press(Enum.KeyCode.V) end
         end)
     end
 end)
 
-local function getFishingUI()
+local function getFishUI()
     local pg = LP:FindFirstChild("PlayerGui")
     if not pg then return nil end
     return (pg:FindFirstChild("MainGui") and pg.MainGui:FindFirstChild("Fishing"))
-        or pg:FindFirstChild("Fishing")
-        or pg:FindFirstChild("FishingUI")
-        or pg:FindFirstChild("FishingGui")
-        or pg:FindFirstChild("FishingScreen")
+        or pg:FindFirstChild("Fishing") or pg:FindFirstChild("FishingUI")
+        or pg:FindFirstChild("FishingGui") or pg:FindFirstChild("FishingScreen")
 end
 
-local function getFishingBarFrame()
-    local ui = getFishingUI()
+local function getBarFrame()
+    local ui = getFishUI()
     if not ui or not ui.Visible then return nil end
-    local barFrame = ui:FindFirstChild("FishingBar")
-        or ui:FindFirstChild("BarFrame")
-        or ui:FindFirstChild("Bar")
-        or ui:FindFirstChild("ProgressBar")
-    if barFrame and barFrame.Visible then return barFrame end
+    local bf = ui:FindFirstChild("FishingBar") or ui:FindFirstChild("BarFrame")
+        or ui:FindFirstChild("Bar") or ui:FindFirstChild("ProgressBar")
+    if bf and bf.Visible then return bf end
     return nil
 end
 
 local function fireFishing(arg)
-    local target
-    local events = ReplicatedStorage:FindFirstChild("Events")
-    if events then target = events:FindFirstChild("Fishing") end
-    if not target then target = ReplicatedStorage:FindFirstChild("Fishing") end
-    if not target then return false end
+    local t
+    local ev = RS:FindFirstChild("Events")
+    if ev then t = ev:FindFirstChild("Fishing") end
+    if not t then t = RS:FindFirstChild("Fishing") end
+    if not t then return false end
     return pcall(function()
-        if arg ~= nil then target:FireServer(arg) else target:FireServer() end
+        if arg ~= nil then t:FireServer(arg) else t:FireServer() end
     end)
 end
 
 RunService.RenderStepped:Connect(function()
-    if not State.BarLock then return end
+    if not S.BL then return end
     pcall(function()
-        local barFrame = getFishingBarFrame()
-        if not barFrame then return end
-        local bar = barFrame:FindFirstChild("Bar")
-            or barFrame:FindFirstChild("Slider")
-            or barFrame:FindFirstChild("Progress")
-            or barFrame:FindFirstChild("Pointer")
-            or barFrame:FindFirstChild("Handle")
+        local bf = getBarFrame()
+        if not bf then return end
+        local bar = bf:FindFirstChild("Bar") or bf:FindFirstChild("Slider")
+            or bf:FindFirstChild("Progress") or bf:FindFirstChild("Pointer")
+            or bf:FindFirstChild("Handle")
         if bar and bar:IsA("GuiObject") then
             bar.Position = UDim2.new(0.5, 0, bar.Position.Y.Scale, 0)
         end
@@ -2435,31 +1826,55 @@ RunService.RenderStepped:Connect(function()
 end)
 
 task.spawn(function()
-    local lastSell = tick()
-    while hubGui.Parent do
+    local last = tick()
+    while gui.Parent do
         task.wait(0.1)
-        if State.AutoSell then
+        if S.ASell then
             local now = tick()
-            if now - lastSell >= CFG.SELL_INTERVAL then
+            if now - last >= C.SELL_INTERVAL then
                 pcall(function()
-                    local events = ReplicatedStorage:FindFirstChild("Events")
-                    local fired  = false
-                    if events then
-                        local sell = events:FindFirstChild("SellFish")
-                        if sell then sell:FireServer("All") fired = true end
+                    local ev = RS:FindFirstChild("Events")
+                    local fired = false
+                    if ev then
+                        local s = ev:FindFirstChild("SellFish")
+                        if s then s:FireServer("All") fired = true end
                     end
                     if not fired then
-                        local sell = ReplicatedStorage:FindFirstChild("SellFish")
-                        if sell then sell:FireServer("All") end
+                        local s = RS:FindFirstChild("SellFish")
+                        if s then s:FireServer("All") end
                     end
                 end)
-                lastSell = now
+                last = now
             end
         else
-            lastSell = tick()
+            last = tick()
         end
     end
 end)
 
-print("★ [Sigma Hub] 加载成功（含 AI 助手 API 接入 / 加载屏 / NPC 过滤 + 去重 / 小游戏 / UI 缩放）。")
-print("★ [Sigma Hub] 想用真实 AI：搜索脚本里的 AI_CONFIG，填入 API_KEY / API_URL / MODEL 三行。")
+task.spawn(function()
+    local last = tick()
+    while gui.Parent do
+        task.wait(0.1)
+        if S.ABuy then
+            local now = tick()
+            if now - last >= C.BUY_INTERVAL then
+                pcall(function()
+                    local ev = RS:FindFirstChild("Events")
+                    if ev then
+                        local bb = ev:FindFirstChild("BuyBait")
+                        if bb then
+                            bb:FireServer(C.BAIT_NAME, C.BAIT_QTY)
+                        end
+                    end
+                end)
+                last = now
+            end
+        else
+            last = tick()
+        end
+    end
+end)
+
+print("◆ [Sigma Hub v7.2 无动画版] 加载完成。")
+print("◆ AI：搜 AI_CONFIG 换 API_KEY。")
